@@ -3,7 +3,7 @@ builder = "nixpacks"
 buildCommand = "pip install --no-cache-dir -r requirements.txt"
 
 [deploy]
-startCommand = "gunicorn src.nfl_data.main:app -k uvicorn.workers.UvicornWorker -w 4 --bind 0.0.0.0:$PORT"
+startCommand = "gunicorn src.nfl_data.main:app -k uvicorn.workers.UvicornWorker -w 4 --bind 0.0.0.0:$PORT --forwarded-allow-ips='*'"
 healthcheckPath = "/api"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
@@ -11,4 +11,8 @@ restartPolicyMaxRetries = 3
 
 [deploy.metadata]
 cpu = "250m"
-memory = "512Mi" 
+memory = "512Mi"
+
+[[deploy.variables]]
+name = "PORT"
+value = "8080" 

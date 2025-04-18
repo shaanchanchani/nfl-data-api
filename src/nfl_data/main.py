@@ -35,16 +35,17 @@ app = FastAPI(
     description="API for accessing and analyzing NFL data",
     version="0.1.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    root_path=os.getenv("ROOT_PATH", "")
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Demo implementations for testing purposes ---
@@ -71,8 +72,13 @@ def get_game_outlook(*args, **kwargs):
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
-    return {"message": "Welcome to the NFL Data API. Visit /docs for documentation."}
+    """Root endpoint redirects to API documentation"""
+    return RedirectResponse(url="/docs")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 @app.get("/api")
 async def read_root():
