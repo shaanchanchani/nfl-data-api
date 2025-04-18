@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nfl-data-api"
+version = "0.1.0"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+description = "NFL Data API"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["nfl_data"]
+
+[tool.pytest]
+testpaths = ["tests"]
