@@ -4,7 +4,7 @@ buildCommand = "pip install --no-cache-dir -r requirements.txt"
 
 [deploy]
 startCommand = "gunicorn src.nfl_data.main:app -k uvicorn.workers.UvicornWorker -w 4 --bind 0.0.0.0:$PORT --forwarded-allow-ips='*'"
-healthcheckPath = "/api"
+healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
