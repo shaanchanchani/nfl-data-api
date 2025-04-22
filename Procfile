@@ -1,1 +1,1 @@
-web: python run.py 
+web: pip install -e . && python run.py 
