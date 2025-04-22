@@ -5,10 +5,11 @@ from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, Query, Path, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
+import pandas as pd
 
-from .stats_helpers import (
+from nfl_data.stats_helpers import (
     get_defensive_stats,
     get_historical_matchup_stats,
     get_team_stats,
@@ -24,7 +25,10 @@ from .stats_helpers import (
     resolve_player,
     get_position_specific_stats_from_pbp,
     get_available_seasons,
-    get_player_headshot_url
+    get_player_headshot_url,
+    calculate_age,
+    import_pbp_data,
+    import_weekly_data
 )
 
 # Load environment variables
@@ -72,12 +76,12 @@ def get_game_outlook(*args, **kwargs):
 
 @app.get("/")
 async def root():
-    """Root endpoint redirects to API documentation"""
-    return RedirectResponse(url="/docs")
+    """Root endpoint redirects to API documentation."""
+    return {"message": "Welcome to the NFL Data API", "docs_url": "/docs"}
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 @app.get("/api")
@@ -108,12 +112,12 @@ async def get_seasons_endpoint():
 
 @app.get("/api/player/{name}")
 async def get_player_information(
-    name: str = Path(..., description="Player name"),
-    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)"),
-    week: Optional[int] = Query(None, description="Filter by week number"),
-    quarter: Optional[int] = Query(None, description="Filter by quarter (1-5, where 5 is OT)"),
-    half: Optional[int] = Query(None, description="Filter by half (1 or 2)"),
-    down: Optional[int] = Query(None, description="Filter by down (1-4)"),
+    name: str = Path(..., description="Player name (format: 'First Last')"),
+    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)", ge=1920, le=2024),
+    week: Optional[int] = Query(None, description="Filter by week number", ge=1, le=22),
+    quarter: Optional[int] = Query(None, description="Filter by quarter (1-5, where 5 is OT)", ge=1, le=5),
+    half: Optional[int] = Query(None, description="Filter by half (1 or 2)", ge=1, le=2),
+    down: Optional[int] = Query(None, description="Filter by down (1-4)", ge=1, le=4),
     is_red_zone: Optional[bool] = Query(None, description="Filter for red zone plays only"),
     is_third_down: Optional[bool] = Query(None, description="Filter for third downs only"),
     is_fourth_down: Optional[bool] = Query(None, description="Filter for fourth downs only"),
@@ -127,6 +131,23 @@ async def get_player_information(
 ):
     """Get comprehensive player stats with optional situation filters."""
     try:
+        # Validate name format
+        name_parts = name.strip().split()
+        if len(name_parts) < 2:
+            raise HTTPException(status_code=400, detail="Player name must include both first and last name")
+            
+        # Validate parameters
+        if season and (season < 1920 or season > 2024):
+            raise HTTPException(status_code=500, detail="Invalid season year")
+        if week and (week < 1 or week > 22):
+            raise HTTPException(status_code=500, detail="Invalid week number")
+        if quarter and (quarter < 1 or quarter > 5):
+            raise HTTPException(status_code=500, detail="Invalid quarter")
+        if half and (half < 1 or half > 2):
+            raise HTTPException(status_code=500, detail="Invalid half")
+        if down and (down < 1 or down > 4):
+            raise HTTPException(status_code=500, detail="Invalid down")
+            
         # Build situation filters from query params
         situation_filters = {}
         
@@ -140,7 +161,7 @@ async def get_player_information(
             situation_filters["half"] = half
         
         if is_red_zone is not None:
-            situation_filters["is_red_zone"] = is_red_zone
+            situation_filters["red_zone"] = is_red_zone
         
         if is_third_down is not None and is_third_down:
             situation_filters["down"] = 3
@@ -149,7 +170,7 @@ async def get_player_information(
             situation_filters["down"] = 4
         
         if is_goal_to_go is not None:
-            situation_filters["is_goal_to_go"] = is_goal_to_go
+            situation_filters["goal_to_go"] = is_goal_to_go
         
         if is_trailing is not None:
             situation_filters["is_trailing"] = is_trailing
@@ -169,20 +190,67 @@ async def get_player_information(
         if is_fourth_quarter_clutch is not None:
             situation_filters["is_fourth_quarter_clutch"] = is_fourth_quarter_clutch
         
-        # Demo version for testing
-        if name == "XYZ123NotARealPlayerName":
-            raise HTTPException(status_code=404, detail="Player not found")
+        # First resolve the player to get their position and ID
+        player, alternatives = resolve_player(name, season)
+        
+        if not player:
+            raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
+        
+        # Get position-specific stats using the appropriate function
+        position = player["position"]
+        
+        # Only handle offensive players
+        if position not in ["QB", "RB", "WR", "TE"]:
+            raise HTTPException(status_code=400, detail=f"Stats not available for {position} position")
             
-        # Get player stats with situation filters
-        stats = get_player_stats(name, season, week, **situation_filters)
+        player_id = player["gsis_id"]
         
-        # Return appropriate response based on result
-        if "error" in stats and "matches" in stats:
-            # Multiple players found - return alternatives with 300 status
-            return JSONResponse(status_code=300, content=stats)
+        # Load play-by-play and weekly data
+        try:
+            pbp_data = import_pbp_data([season] if season else None)
+            weekly_data = import_weekly_data([season] if season else None)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error loading data: {str(e)}")
         
-        return stats
+        # Filter plays for this player based on position
+        if position == "QB":
+            plays = pbp_data[pbp_data['passer_player_id'] == player_id]
+        elif position == "RB":
+            plays = pbp_data[
+                (pbp_data['rusher_player_id'] == player_id) |
+                (pbp_data['receiver_player_id'] == player_id)
+            ]
+        elif position in ["WR", "TE"]:
+            plays = pbp_data[pbp_data['receiver_player_id'] == player_id]
+        
+        # Get position-specific stats
+        stats = get_position_specific_stats_from_pbp(
+            plays,
+            position,
+            weekly_data=weekly_data,
+            player_id=player_id,
+            situation_filters=situation_filters,
+            game_filters={'season_games': [week]} if week else None
+        )
+        
+        # Add player info to response
+        response = {
+            "player_info": {
+                "player_id": player_id,
+                "name": player["display_name"],
+                "position": position,
+                "team": player.get("team_abbr", ""),
+                "age": calculate_age(player["birth_date"]) if "birth_date" in player else None,
+                "experience": player.get("years_of_experience", None),
+                "headshot_url": weekly_data[weekly_data['player_id'] == player_id]['headshot_url'].iloc[0] if not weekly_data[weekly_data['player_id'] == player_id].empty else None
+            },
+            "stats": stats
+        }
+        
+        return response
     
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting player stats: {str(e)}")
 

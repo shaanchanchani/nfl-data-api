@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, date
 
 from .data_import import (
     import_pbp_data,
@@ -885,14 +885,20 @@ def get_player_info(player_name: str) -> Dict:
         'experience': player['years_of_experience']
     }
 
-def calculate_age(birth_date_str):
-    """Calculate age from birth date string."""
+def calculate_age(birth_date_str: Optional[str]) -> Optional[int]:
+    """Calculate age from birth date string.
+    
+    Args:
+        birth_date_str: Birth date in YYYY-MM-DD format
+        
+    Returns:
+        Age in years or None if birth_date_str is invalid
+    """
     if not birth_date_str or pd.isna(birth_date_str):
         return None
     try:
-        birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d')
-        today = datetime.today()
-        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
-        return age
-    except:
+        birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+        today = date.today()
+        return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+    except (ValueError, TypeError):
         return None 
