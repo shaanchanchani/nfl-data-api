@@ -138,34 +138,12 @@ def safe_read_parquet(path: Path, dataset_name: str = "") -> pd.DataFrame:
         path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to read {dataset_name} from {path}: {str(e)}")
 
-async def load_pbp_data(seasons: Optional[List[int]] = None) -> pd.DataFrame:
-    """Load play-by-play data for specified seasons."""
-    if seasons is None:
-        seasons = [2024]
-    
-    dfs = []
-    errors = []
-    
-    for season in seasons:
-        try:
-            cache_path = CACHE_DIR / f"play_by_play_{season}.parquet"
-            
-            # Download if not in cache
-            if not cache_path.exists():
-                version = await get_dataset_version("play_by_play")
-                url = f"{NFLVERSE_BASE_URL}/{version}/play_by_play_{season}.parquet"
-                download_parquet(url, cache_path)
-            
-            # Load from cache
-            df = safe_read_parquet(cache_path)
-            dfs.append(df)
-        except Exception as e:
-            errors.append(f"Season {season}: {str(e)}")
-    
-    if not dfs and errors:
-        raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
-    
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+def load_pbp_data() -> pd.DataFrame:
+    """Load play-by-play data from the condensed parquet file."""
+    cache_path = CACHE_DIR / "play_by_play_condensed.parquet"
+    if not cache_path.exists():
+        raise FileNotFoundError(f"Condensed play-by-play file not found: {cache_path}")
+    return pd.read_parquet(cache_path)
 
 async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load weekly player stats for specified seasons."""

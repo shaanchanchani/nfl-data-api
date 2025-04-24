@@ -14,9 +14,9 @@ from .data_loader import (
     get_available_seasons
 )
 
-def import_pbp_data(seasons: List[int]) -> pd.DataFrame:
-    """Import play-by-play data for specified seasons."""
-    return load_pbp_data(seasons)
+def import_pbp_data() -> pd.DataFrame:
+    """Import play-by-play data from the condensed file."""
+    return load_pbp_data()
 
 def import_weekly_data(seasons: List[int]) -> pd.DataFrame:
     """Import weekly player stats for specified seasons."""

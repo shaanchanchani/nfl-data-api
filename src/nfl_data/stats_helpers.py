@@ -42,7 +42,8 @@ def get_defensive_stats(team: str, pbp_data: Optional[pd.DataFrame] = None, week
         
     # Load data if not provided
     if pbp_data is None:
-        pbp_data = import_pbp_data([season])
+        pbp_data = import_pbp_data()
+        pbp_data = pbp_data[pbp_data['season'] == season]
     if weekly_stats is None:
         weekly_stats = import_weekly_data([season])
         
@@ -133,7 +134,8 @@ def get_team_stats(team: str) -> Dict:
     season = 2024
     
     # Import play-by-play data
-    pbp_data = import_pbp_data([season])
+    pbp_data = import_pbp_data()
+    pbp_data = pbp_data[pbp_data['season'] == season]
     team_plays = pbp_data[pbp_data['posteam'] == team]
     
     # Create default stats if no data
@@ -228,7 +230,7 @@ def analyze_player_matchup(player_name: str, home_team: str, away_team: str) -> 
     historical_stats = get_historical_matchup_stats(player_name, opponent)
     
     # Get opponent defensive stats
-    opp_def_stats = get_defensive_stats(opponent, import_pbp_data([datetime.now().year]), import_weekly_data([datetime.now().year]), datetime.now().year)
+    opp_def_stats = get_defensive_stats(opponent, import_pbp_data()[import_pbp_data()['season'] == datetime.now().year], import_weekly_data([datetime.now().year]), datetime.now().year)
     
     # Get matchup-specific analysis based on position
     position_matchup = analyze_position_matchup(
