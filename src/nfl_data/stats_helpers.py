@@ -99,31 +99,9 @@ def get_historical_matchup_stats(
         player_id = player['gsis_id']
         
         weekly_stats = import_weekly_data(seasons)
-        player_stats = weekly_stats[
-            (weekly_stats['player_id'] == player_id) &
-            (weekly_stats['opponent_team'] == opponent)
-        ]
-        
-        if player_stats.empty:
-            return {
-                'player_name': player['display_name'],
-                'opponent': opponent,
-                'seasons': seasons,
-                'stats': {},
-                'games_played': 0
-            }
-            
-        # Calculate aggregate stats
-        agg_stats = {}
-        # Add relevant aggregations based on position
-        
-        return {
-            'player_name': player['display_name'],
-            'opponent': opponent,
-            'seasons': seasons,
-            'stats': agg_stats,
-            'games_played': len(player_stats)
-        }
+        # The import_weekly_data returns a coroutine that needs to be awaited,
+        # but this function is not async, so we should raise an error.
+        raise RuntimeError("get_historical_matchup_stats is not an async function but calls async data loaders. Use the direct async loader functions instead.")
         
     except Exception as e:
         return {"error": f"An error occurred calculating historical stats: {str(e)}"}
@@ -367,14 +345,14 @@ def get_available_seasons() -> List[int]:
     current_year = datetime.now().year
     return list(range(current_year - 5, current_year + 1))
 
-def search_players(name: str) -> List[Dict]:
+async def search_players(name: str) -> List[Dict]:
     """Search for players by name."""
-    players_df = import_players()
+    players_df = await import_players()
     # Players dataset uses 'display_name' instead of 'player_name'
     matches = players_df[players_df['display_name'].str.lower().str.contains(name.lower())]
     return matches.to_dict('records')
 
-def resolve_player(name: str, season: Optional[int] = None) -> Tuple[Optional[Dict], List[Dict]]:
+async def resolve_player(name: str, season: Optional[int] = None) -> Tuple[Optional[Dict], List[Dict]]:
     """Resolve player name to a single player or return alternatives.
     
     Args:
@@ -391,9 +369,9 @@ def resolve_player(name: str, season: Optional[int] = None) -> Tuple[Optional[Di
         season = get_current_season()
         
     # Load both current players and historical roster data
-    players_df = load_players()
+    players_df = await load_players()
     try:
-        roster_df = load_rosters([season])
+        roster_df = await load_rosters([season])
         # Merge roster data with player data to get historical team info
         if not roster_df.empty:
             players_df = players_df.merge(
@@ -451,10 +429,10 @@ def resolve_player(name: str, season: Optional[int] = None) -> Tuple[Optional[Di
 
 def get_player_headshot_url(player_id: str) -> str:
     """Get URL for player's headshot image."""
-    # TODO: Implement actual URL generation
-    return f"https://example.com/headshots/{player_id}.jpg"
+    # Use the NFL CDN URL format
+    return f"https://static.www.nfl.com/image/private/t_player_profile_landscape/f_auto/league/{player_id}"
 
-def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
+async def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
     """Get game-by-game stats for a player."""
     # Resolve player first
     player, alternatives = resolve_player(player_name)
@@ -471,8 +449,8 @@ def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
     if not season:
         season = 2024  # Use 2024 data
     
-    # Get weekly data
-    weekly_data = import_weekly_data([season])
+    # Get weekly data - use await since this is an async function
+    weekly_data = await import_weekly_data([season])
     player_games = weekly_data[weekly_data['player_name'].str.lower() == player["display_name"].lower()]
     
     # Return formatted response
@@ -485,7 +463,7 @@ def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
         "season": season
     }
 
-def get_player_career_stats(player_name: str) -> Dict:
+async def get_player_career_stats(player_name: str) -> Dict:
     """Get career stats for a player."""
     # Resolve player first
     player, alternatives = resolve_player(player_name)
@@ -520,7 +498,7 @@ def get_game_stats(game_id: str) -> Dict:
     # TODO: Implement actual game stats retrieval
     return {}
 
-def get_situation_stats(player_name: str, situation_type: str) -> Dict:
+async def get_situation_stats(player_name: str, situation_type: str, season: Optional[int] = None) -> Dict:
     """Get player stats in specific situations."""
     # Resolve player first
     player, alternatives = resolve_player(player_name)
@@ -554,7 +532,7 @@ def normalize_team_name(team: str) -> str:
     # TODO: Implement actual team name normalization
     return team.upper()
 
-def get_player_on_field_stats(player_name: str, other_player: str, on_field: bool = True) -> Dict:
+async def get_player_on_field_stats(player_name: str, other_player_name: str, season: Optional[int] = None, week: Optional[int] = None, on_field: bool = True) -> Dict:
     """Get player stats when another player is on/off the field."""
     # TODO: Implement actual on-field stats calculation
     return {}

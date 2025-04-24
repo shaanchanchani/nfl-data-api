@@ -1,17 +1,45 @@
 """FastAPI application for NFL data analysis."""
 
 import os
-from typing import Dict, List, Optional, Any
-from fastapi import FastAPI, Query, Path, HTTPException
+import logging
+import json
+from typing import Dict, List, Optional, Any, Literal
+from fastapi import FastAPI, Query, Path, HTTPException, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
+from enum import Enum
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date
 from dotenv import load_dotenv
 import pandas as pd
+import numpy as np
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 import redis.asyncio as redis
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Custom JSON encoder to handle NaN and Infinity values
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, float):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, pd.Series):
+            return obj.tolist()
+        if isinstance(obj, pd.DataFrame):
+            return obj.to_dict('records')
+        return super().default(obj)
 
 from nfl_data.stats_helpers import (
     get_defensive_stats,
@@ -43,13 +71,31 @@ from nfl_data.data_loader import (
 # Load environment variables
 load_dotenv()
 
+class CustomJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        try:
+            return json.dumps(
+                content,
+                ensure_ascii=False,
+                allow_nan=True,  # Allow NaN values to pass through
+                indent=None,
+                separators=(",", ":"),
+                cls=CustomJSONEncoder,
+            ).encode("utf-8")
+        except Exception as e:
+            logger.error(f"JSON serialization error: {e}")
+            # Create a simplified response that will definitely serialize
+            error_response = {"error": "Could not serialize response", "message": str(e)}
+            return json.dumps(error_response).encode("utf-8")
+
 app = FastAPI(
     title="NFL Data API",
     description="API for accessing and analyzing NFL data",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    root_path=os.getenv("ROOT_PATH", "")
+    root_path=os.getenv("ROOT_PATH", ""),
+    default_response_class=CustomJSONResponse
 )
 
 # Configure CORS
@@ -95,6 +141,9 @@ async def read_root():
         "available_endpoints": [
             "/api/seasons",
             "/api/player/{name}",
+            "/api/player/{name}/info",
+            "/api/player/{name}/history",
+            "/api/player/{name}/stats",
             "/api/player/{name}/headshot",
             "/api/player/{name}/career",
             "/api/player/{name}/gamelog",
@@ -111,16 +160,22 @@ async def get_seasons_endpoint():
     seasons = get_available_seasons()
     return {"seasons": seasons}
 
-@app.get("/api/player/{name}")
+class HistoryType(str, Enum):
+    """Enumeration of player history types."""
+    ROSTER = "roster"
+    DEPTH = "depth"
+    INJURY = "injury"
+
+@app.get("/api/player/{name}/info")
 @cache(expire=43200)  # 12 hours
-async def get_player_information(
+async def get_player_info(
     name: str = Path(..., description="Player name (format: 'First Last')"),
     season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)", ge=1920, le=2024)
 ):
-    """Get comprehensive player information including stats, roster info, and injury history."""
+    """Get basic player information including ID, name, position, team, physical attributes, etc."""
     try:
-        # Resolve player first
-        player, alternatives = resolve_player(name, season)
+        # Resolve player first - use await since resolve_player is now async
+        player, alternatives = await resolve_player(name, season)
         
         if not player and alternatives:
             # Enhanced response for LLMs with more context
@@ -140,58 +195,469 @@ async def get_player_information(
         if not player:
             raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
             
-        # Get player ID and add headshot URL
+        # Get player ID and headshot URL
         player_id = player["gsis_id"]
-        player["headshot_url"] = get_headshot_url(player_id)
         
-        # Load all relevant data
+        # Use the headshot URL directly from the player data
+        headshot_url = player.get("headshot", "")
+        
+        # Build focused player info response
+        response = {
+            "player_id": player_id,
+            "name": player["display_name"],
+            "position": player.get("position", ""),
+            "team": player.get("team_abbr", ""),
+            "age": calculate_age(player["birth_date"]) if "birth_date" in player else None,
+            "experience": player.get("years_of_experience", None),
+            "college": player.get("college_name", None),
+            "height": player.get("height", None),
+            "weight": player.get("weight", None),
+            "headshot_url": headshot_url
+        }
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error getting player information: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting player information: {str(e)}")
+
+class AggregationType(str, Enum):
+    """Enumeration of aggregation types for player statistics."""
+    CAREER = "career"
+    SEASON = "season"
+    WEEK = "week"
+    
+@app.get("/api/player/{name}/stats")
+@cache(expire=43200)  # 12 hours
+async def get_player_stats(
+    name: str = Path(..., description="Player name (format: 'First Last')"),
+    aggregate: AggregationType = Query(AggregationType.SEASON, description="Aggregation level for statistics"),
+    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)"),
+    week: Optional[int] = Query(None, description="Filter by week number (only applicable when aggregate=week)"),
+    season_type: Optional[str] = Query(None, description="Filter by season type (REG or POST)")
+):
+    """Get player statistics with flexible aggregation options."""
+    try:
+        # Resolve player first
+        player, alternatives = await resolve_player(name, season)
+        
+        if not player and alternatives:
+            return JSONResponse(
+                status_code=300,
+                content={
+                    "error": f"Multiple players found matching '{name}'",
+                    "matches": [{
+                        **alt,
+                        "full_context": f"{alt.get('display_name')} ({alt.get('position')}, {alt.get('team_abbr') or 'Retired'})"
+                    } for alt in alternatives]
+                }
+            )
+            
+        if not player:
+            raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
+            
+        # Get player ID and position
+        player_id = player["gsis_id"]
+        position = player.get("position", "")
+        
+        # Load weekly stats data
         seasons = [season] if season else list(range(2020, 2025))
-        weekly_stats = load_weekly_stats(seasons)
-        rosters = load_rosters(seasons)
-        depth_charts = load_depth_charts(seasons)
-        injuries = load_injuries(seasons)
+        weekly_stats = await load_weekly_stats(seasons)
         
         # Filter data for this player
-        player_stats = weekly_stats[weekly_stats['player_id'] == player_id]
-        player_rosters = rosters[rosters['player_id'] == player_id]
-        player_depth = depth_charts[depth_charts['player_id'] == player_id]
-        player_injuries = injuries[injuries['player_id'] == player_id]
+        player_stats = weekly_stats[weekly_stats['player_id'] == player_id] if 'player_id' in weekly_stats.columns else pd.DataFrame()
         
-        # Calculate career stats
-        career_stats = {}
-        if not player_stats.empty:
-            career_stats = {
-                "games_played": len(player_stats),
-                "fantasy_points_per_game": float(player_stats['fantasy_points_ppr'].mean()),
-                "total_fantasy_points": float(player_stats['fantasy_points_ppr'].sum())
+        # Apply additional filters
+        if season:
+            player_stats = player_stats[player_stats['season'] == season]
+        if week and aggregate == AggregationType.WEEK:
+            player_stats = player_stats[player_stats['week'] == week]
+        if season_type:
+            player_stats = player_stats[player_stats['season_type'] == season_type]
+            
+        # Check if we have data
+        if player_stats.empty:
+            return {
+                "player_id": player_id,
+                "name": player["display_name"],
+                "position": position,
+                "aggregation": aggregate,
+                "stats": []
             }
             
-            # Add position-specific stats
+        # Helper for sanitizing records
+        def sanitize_record(record):
+            result = {}
+            for k, v in record.items():
+                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+                    result[k] = None
+                elif pd.isna(v):
+                    result[k] = None
+                else:
+                    # Convert numpy types to Python native types
+                    if isinstance(v, np.integer):
+                        result[k] = int(v)
+                    elif isinstance(v, np.floating):
+                        result[k] = float(v)
+                    else:
+                        result[k] = v
+            return result
+            
+        # Process stats based on aggregation level
+        stats_data = []
+        
+        if aggregate == AggregationType.CAREER:
+            # Aggregate stats across all seasons for a career total
+            if not player_stats.empty:
+                # Group by season_type to aggregate regular season and postseason separately
+                grouped = player_stats.groupby('season_type')
+                
+                for season_type_val, group in grouped:
+                    career_summary = {}
+                    
+                    # Common stats across positions
+                    career_summary["season_type"] = season_type_val
+                    career_summary["games_played"] = len(group)
+                    
+                    # Handle position-specific aggregations
+                    if position == "QB":
+                        # Sum counting stats
+                        career_summary["passing_yards"] = float(group['passing_yards'].sum())
+                        career_summary["passing_tds"] = int(group['passing_tds'].sum())
+                        career_summary["interceptions"] = int(group['interceptions'].sum())
+                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        completions = group['completions'].sum()
+                        attempts = group['attempts'].sum()
+                        
+                        # Calculate derived stats
+                        career_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                        
+                    elif position in ["RB", "WR", "TE"]:
+                        # Sum counting stats
+                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        career_summary["receptions"] = int(group['receptions'].sum())
+                        career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                        career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                        career_summary["targets"] = int(group['targets'].sum())
+                        
+                        # Calculate derived stats
+                        career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                        
+                    # Add fantasy points
+                    if 'fantasy_points_ppr' in group:
+                        career_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
+                        career_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
+                        
+                    stats_data.append(sanitize_record(career_summary))
+                    
+        elif aggregate == AggregationType.SEASON:
+            # Aggregate stats by season
+            # Group by season and season_type
+            grouped = player_stats.groupby(['season', 'season_type'])
+            
+            for (season_val, season_type_val), group in grouped:
+                season_summary = {}
+                
+                # Common stats
+                season_summary["season"] = int(season_val)
+                season_summary["season_type"] = season_type_val
+                season_summary["games_played"] = len(group)
+                
+                # Handle position-specific aggregations
+                if position == "QB":
+                    # Sum counting stats
+                    season_summary["passing_yards"] = float(group['passing_yards'].sum())
+                    season_summary["passing_tds"] = int(group['passing_tds'].sum())
+                    season_summary["interceptions"] = int(group['interceptions'].sum())
+                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                    completions = group['completions'].sum()
+                    attempts = group['attempts'].sum()
+                    
+                    # Calculate derived stats
+                    season_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                    
+                elif position in ["RB", "WR", "TE"]:
+                    # Sum counting stats
+                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                    season_summary["receptions"] = int(group['receptions'].sum())
+                    season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                    season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                    season_summary["targets"] = int(group['targets'].sum())
+                    
+                    # Calculate derived stats
+                    season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                    
+                # Add fantasy points
+                if 'fantasy_points_ppr' in group:
+                    season_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
+                    season_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
+                    
+                stats_data.append(sanitize_record(season_summary))
+                
+        elif aggregate == AggregationType.WEEK:
+            # Return week-by-week stats (no aggregation)
+            for _, record in player_stats.iterrows():
+                stats_data.append(sanitize_record(record.to_dict()))
+        
+        # Sort the data appropriately
+        if stats_data and aggregate == AggregationType.SEASON:
+            stats_data.sort(key=lambda x: (x.get('season', 0), x.get('season_type', '')), reverse=True)
+        elif stats_data and aggregate == AggregationType.WEEK:
+            stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
+            
+        return {
+            "player_id": player_id,
+            "name": player["display_name"],
+            "position": position,
+            "team": player.get("team_abbr", ""),
+            "aggregation": aggregate,
+            "stats": stats_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting player stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting player stats: {str(e)}")
+
+@app.get("/api/player/{name}/history")
+@cache(expire=43200)  # 12 hours
+async def get_player_history(
+    name: str = Path(..., description="Player name (format: 'First Last')"),
+    type: HistoryType = Query(..., description="Type of history data to retrieve"),
+    season: Optional[int] = Query(None, description="Filter by specific season (optional)"),
+    week: Optional[int] = Query(None, description="Filter by specific week (optional, for depth charts and injuries)")
+):
+    """Get player history data for roster, depth chart, or injury history."""
+    try:
+        # Resolve player first
+        player, alternatives = await resolve_player(name, season)
+        
+        if not player and alternatives:
+            return JSONResponse(
+                status_code=300,
+                content={
+                    "error": f"Multiple players found matching '{name}'",
+                    "matches": [{
+                        **alt,
+                        "full_context": f"{alt.get('display_name')} ({alt.get('position')}, {alt.get('team_abbr') or 'Retired'})"
+                    } for alt in alternatives]
+                }
+            )
+            
+        if not player:
+            raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
+            
+        # Get player ID
+        player_id = player["gsis_id"]
+        
+        # Load appropriate dataset based on history type
+        seasons = [season] if season else list(range(2020, 2025))
+        
+        # Helper function to sanitize records
+        def sanitize_record(record):
+            result = {}
+            for k, v in record.items():
+                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+                    result[k] = None
+                elif pd.isna(v):
+                    result[k] = None
+                else:
+                    # Convert numpy types to Python native types
+                    if isinstance(v, np.integer):
+                        result[k] = int(v)
+                    elif isinstance(v, np.floating):
+                        result[k] = float(v)
+                    else:
+                        result[k] = v
+            return result
+        
+        # Process the requested history type
+        history_data = []
+        
+        if type == HistoryType.ROSTER:
+            # Load roster data
+            rosters = await load_rosters(seasons)
+            player_rosters = rosters[rosters['gsis_id'] == player_id] if 'gsis_id' in rosters.columns else pd.DataFrame()
+            
+            # Filter by season if specified
+            if season:
+                player_rosters = player_rosters[player_rosters['season'] == season]
+                
+            # Include only relevant fields (normalize data)
+            if not player_rosters.empty:
+                selected_columns = ['season', 'team', 'status', 'jersey_number', 'depth_chart_position']
+                # Filter to include only columns that exist in the dataframe
+                existing_columns = [col for col in selected_columns if col in player_rosters.columns]
+                filtered_rosters = player_rosters[existing_columns]
+                
+                for record in filtered_rosters.to_dict('records'):
+                    sanitized_record = sanitize_record(record)
+                    history_data.append(sanitized_record)
+                    
+        elif type == HistoryType.DEPTH:
+            # Load depth chart data
+            depth_charts = await load_depth_charts(seasons)
+            player_depth = depth_charts[depth_charts['gsis_id'] == player_id] if 'gsis_id' in depth_charts.columns else pd.DataFrame()
+            
+            # Apply filters
+            if season:
+                player_depth = player_depth[player_depth['season'] == season]
+            if week:
+                player_depth = player_depth[player_depth['week'] == week]
+                
+            # Include only relevant fields (normalize data)
+            if not player_depth.empty:
+                selected_columns = ['season', 'week', 'depth_team', 'depth_position', 'depth_order', 'status']
+                # Filter to include only columns that exist in the dataframe
+                existing_columns = [col for col in selected_columns if col in player_depth.columns]
+                filtered_depth = player_depth[existing_columns]
+                
+                for record in filtered_depth.to_dict('records'):
+                    sanitized_record = sanitize_record(record)
+                    history_data.append(sanitized_record)
+                    
+        elif type == HistoryType.INJURY:
+            # Load injury data
+            injuries = await load_injuries(seasons)
+            player_injuries = injuries[injuries['gsis_id'] == player_id] if 'gsis_id' in injuries.columns else pd.DataFrame()
+            
+            # Apply filters
+            if season:
+                player_injuries = player_injuries[player_injuries['season'] == season]
+            if week:
+                player_injuries = player_injuries[player_injuries['week'] == week]
+                
+            # Include only relevant fields (normalize data)
+            if not player_injuries.empty:
+                selected_columns = ['season', 'week', 'team', 'injury_type', 'practice_status', 'game_status']
+                # Filter to include only columns that exist in the dataframe
+                existing_columns = [col for col in selected_columns if col in player_injuries.columns]
+                filtered_injuries = player_injuries[existing_columns]
+                
+                for record in filtered_injuries.to_dict('records'):
+                    sanitized_record = sanitize_record(record)
+                    history_data.append(sanitized_record)
+        
+        # Sort the data by appropriate fields
+        if history_data:
+            if 'season' in history_data[0]:
+                history_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
+        
+        return {
+            "player_id": player_id,
+            "name": player["display_name"],
+            "position": player.get("position", ""),
+            "history_type": type,
+            "records": history_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting player history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting player history: {str(e)}")
+
+@app.get("/api/player/{name}")
+@cache(expire=43200)  # 12 hours
+async def get_player_information(
+    name: str = Path(..., description="Player name (format: 'First Last')"),
+    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)", ge=1920, le=2024)
+):
+    """Get basic player information and career stats. For detailed data, use the dedicated endpoints.
+    
+    Note: This is a simplified endpoint that returns only player info and career stats.
+    For more detailed or filtered data, use the following dedicated endpoints:
+    - /api/player/{name}/info - For basic player information
+    - /api/player/{name}/history - For roster, depth chart, or injury history
+    - /api/player/{name}/stats - For statistics with flexible aggregation options
+    """
+    try:
+        # Resolve player first - use await since resolve_player is now async
+        player, alternatives = await resolve_player(name, season)
+        
+        if not player and alternatives:
+            # Enhanced response for LLMs with more context
+            return JSONResponse(
+                status_code=300,
+                content={
+                    "error": f"Multiple players found matching '{name}'",
+                    "suggestion": "Please specify which player you mean by providing additional context like team, position, or active/retired status",
+                    "matches": [{
+                        **alt,
+                        "active_status": "Active" if alt.get("team_abbr") else "Inactive/Retired",
+                        "full_context": f"{alt.get('display_name')} ({alt.get('position')}, {alt.get('team_abbr') or 'Retired'}, {alt.get('years_of_experience', 0)} years exp.)"
+                    } for alt in alternatives]
+                }
+            )
+            
+        if not player:
+            raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
+            
+        # Get player ID and headshot URL
+        player_id = player["gsis_id"]
+        
+        # Use the headshot URL directly from the player data
+        headshot_url = player.get("headshot", "")
+        
+        # Load stats data for career stats
+        seasons = [season] if season else list(range(2020, 2025))
+        weekly_stats = await load_weekly_stats(seasons)
+        
+        # Filter data for this player
+        player_stats = weekly_stats[weekly_stats['player_id'] == player_id] if 'player_id' in weekly_stats.columns else pd.DataFrame()
+        
+        # Process career stats - handle potential NaN values
+        career_stats = {}
+        position = player.get("position", "")
+        if not player_stats.empty:
+            fantasy_pts_per_game = player_stats['fantasy_points_ppr'].mean()
+            fantasy_pts_total = player_stats['fantasy_points_ppr'].sum()
+            
+            career_stats = {
+                "games_played": len(player_stats),
+                "fantasy_points_per_game": None if pd.isna(fantasy_pts_per_game) else float(fantasy_pts_per_game),
+                "total_fantasy_points": None if pd.isna(fantasy_pts_total) else float(fantasy_pts_total)
+            }
+            
+            # Add position-specific stats with NaN handling
             if position == "QB":
+                passing_yards = player_stats['passing_yards'].sum()
+                passing_tds = player_stats['passing_tds'].sum()
+                interceptions = player_stats['interceptions'].sum()
+                completions = player_stats['completions'].sum()
+                attempts = player_stats['attempts'].sum()
+                rushing_yards = player_stats['rushing_yards'].sum()
+                rushing_tds = player_stats['rushing_tds'].sum()
+                
+                completion_percentage = (completions / attempts * 100) if attempts > 0 else 0
+                
                 career_stats.update({
-                    "passing_yards": float(player_stats['passing_yards'].sum()),
-                    "passing_tds": int(player_stats['passing_tds'].sum()),
-                    "interceptions": int(player_stats['interceptions'].sum()),
-                    "completion_percentage": float((player_stats['completions'].sum() / player_stats['attempts'].sum() * 100) if player_stats['attempts'].sum() > 0 else 0),
-                    "rushing_yards": float(player_stats['rushing_yards'].sum()),
-                    "rushing_tds": int(player_stats['rushing_tds'].sum())
+                    "passing_yards": None if pd.isna(passing_yards) else float(passing_yards),
+                    "passing_tds": None if pd.isna(passing_tds) else int(passing_tds),
+                    "interceptions": None if pd.isna(interceptions) else int(interceptions),
+                    "completion_percentage": None if pd.isna(completion_percentage) else float(completion_percentage),
+                    "rushing_yards": None if pd.isna(rushing_yards) else float(rushing_yards),
+                    "rushing_tds": None if pd.isna(rushing_tds) else int(rushing_tds)
                 })
             elif position in ["RB", "WR", "TE"]:
+                rushing_yards = player_stats['rushing_yards'].sum()
+                rushing_tds = player_stats['rushing_tds'].sum()
+                receptions = player_stats['receptions'].sum()
+                receiving_yards = player_stats['receiving_yards'].sum()
+                receiving_tds = player_stats['receiving_tds'].sum()
+                targets = player_stats['targets'].sum()
+                
                 career_stats.update({
-                    "rushing_yards": float(player_stats['rushing_yards'].sum()),
-                    "rushing_tds": int(player_stats['rushing_tds'].sum()),
-                    "receptions": int(player_stats['receptions'].sum()),
-                    "receiving_yards": float(player_stats['receiving_yards'].sum()),
-                    "receiving_tds": int(player_stats['receiving_tds'].sum()),
-                    "targets": int(player_stats['targets'].sum())
+                    "rushing_yards": None if pd.isna(rushing_yards) else float(rushing_yards),
+                    "rushing_tds": None if pd.isna(rushing_tds) else int(rushing_tds),
+                    "receptions": None if pd.isna(receptions) else int(receptions),
+                    "receiving_yards": None if pd.isna(receiving_yards) else float(receiving_yards),
+                    "receiving_tds": None if pd.isna(receiving_tds) else int(receiving_tds),
+                    "targets": None if pd.isna(targets) else int(targets)
                 })
         
-        # Convert DataFrame records to JSON-serializable format
-        def convert_to_json_safe(record):
-            return {k: float(v) if isinstance(v, pd.np.floating) else int(v) if isinstance(v, pd.np.integer) else v 
-                   for k, v in record.items()}
-        
-        # Build response
+        # Build simplified response with just player info and career stats
         response = {
             "player_info": {
                 "player_id": player_id,
@@ -200,21 +666,26 @@ async def get_player_information(
                 "team": player.get("team_abbr", ""),
                 "age": calculate_age(player["birth_date"]) if "birth_date" in player else None,
                 "experience": player.get("years_of_experience", None),
-                "college": player.get("college", None),
+                "college": player.get("college_name", None),
                 "height": player.get("height", None),
                 "weight": player.get("weight", None),
-                "headshot_url": player["headshot_url"]
+                "headshot_url": headshot_url
             },
             "career_stats": career_stats,
-            "season_stats": [convert_to_json_safe(record) for record in player_stats.to_dict('records')] if not player_stats.empty else [],
-            "roster_history": [convert_to_json_safe(record) for record in player_rosters.to_dict('records')] if not player_rosters.empty else [],
-            "depth_chart_history": [convert_to_json_safe(record) for record in player_depth.to_dict('records')] if not player_depth.empty else [],
-            "injury_history": [convert_to_json_safe(record) for record in player_injuries.to_dict('records')] if not player_injuries.empty else []
+            "available_endpoints": {
+                "info": f"/api/player/{name}/info",
+                "history": f"/api/player/{name}/history?type=roster|depth|injury",
+                "stats": f"/api/player/{name}/stats?aggregate=career|season|week",
+                "headshot": f"/api/player/{name}/headshot",
+                "gamelog": f"/api/player/{name}/gamelog",
+                "career": f"/api/player/{name}/career"
+            }
         }
         
         return response
         
     except Exception as e:
+        logger.error(f"Error getting player information: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting player information: {str(e)}")
 
 @app.get("/api/player/{name}/headshot")
@@ -225,8 +696,8 @@ async def get_headshot(
 ):
     """Get URL for player's headshot image."""
     try:
-        # Resolve player
-        player, alternatives = resolve_player(name, season)
+        # Resolve player - use await since resolve_player is now async
+        player, alternatives = await resolve_player(name, season)
         
         if not player and not alternatives:
             raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
@@ -240,7 +711,9 @@ async def get_headshot(
                 }
             )
         
-        headshot_url = get_headshot_url(player["gsis_id"])
+        # Use the headshot URL directly from the player data
+        headshot_url = player.get("headshot", "")
+        
         return {
             "player_id": player["gsis_id"],
             "player_name": player["display_name"],

@@ -146,39 +146,67 @@ def load_pbp_data() -> pd.DataFrame:
     return pd.read_parquet(cache_path)
 
 async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
-    """Load weekly player stats for specified seasons."""
-    if seasons is None:
-        seasons = [2024]
-    
-    dfs = []
-    errors = []
-    
-    for season in seasons:
-        try:
-            cache_path = CACHE_DIR / f"player_stats_{season}.parquet"
+    """Load weekly player stats from the condensed parquet file."""
+    try:
+        # Use condensed file if available
+        condensed_path = CACHE_DIR / "weekly_stats_condensed.parquet"
+        if condensed_path.exists():
+            logger.info(f"Loading weekly stats from condensed file: {condensed_path}")
+            stats_df = pd.read_parquet(condensed_path)
             
-            # Download if not in cache
-            if not cache_path.exists():
-                version = await get_dataset_version("player_stats")
-                url = f"{NFLVERSE_BASE_URL}/{version}/player_stats_{season}.parquet"
-                download_parquet(url, cache_path, f"player_stats_{season}")
-            
-            # Load from cache
-            df = safe_read_parquet(cache_path, f"player_stats_{season}")
-            dfs.append(df)
-        except Exception as e:
-            errors.append(f"Season {season}: {str(e)}")
-    
-    if not dfs and errors:
-        raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
-    
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+            # Filter by seasons if provided
+            if seasons:
+                stats_df = stats_df[stats_df['season'].isin(seasons)]
+                
+            return stats_df
+        
+        # Fall back to individual season files if condensed file not available
+        logger.warning("Condensed weekly stats file not found, falling back to individual season files")
+        if seasons is None:
+            seasons = [2024]
+        
+        dfs = []
+        errors = []
+        
+        for season in seasons:
+            try:
+                cache_path = CACHE_DIR / f"player_stats_{season}.parquet"
+                
+                # Download if not in cache
+                if not cache_path.exists():
+                    version = await get_dataset_version("player_stats")
+                    url = f"{NFLVERSE_BASE_URL}/{version}/player_stats_{season}.parquet"
+                    download_parquet(url, cache_path, f"player_stats_{season}")
+                
+                # Load from cache
+                df = safe_read_parquet(cache_path, f"player_stats_{season}")
+                dfs.append(df)
+            except Exception as e:
+                errors.append(f"Season {season}: {str(e)}")
+        
+        if not dfs and errors:
+            raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
+        
+        return pd.concat(dfs) if dfs else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error loading weekly stats: {str(e)}")
+        return pd.DataFrame()
 
 async def load_players() -> pd.DataFrame:
-    """Load player information."""
-    cache_path = CACHE_DIR / "players.parquet"
-    
+    """Load player information from the condensed parquet file."""
     try:
+        # Try loading from condensed file first
+        condensed_path = CACHE_DIR / "players_condensed.parquet"
+        if condensed_path.exists():
+            logger.info(f"Loading players from condensed file: {condensed_path}")
+            df = pd.read_parquet(condensed_path)
+            if not df.empty:
+                return df
+                
+        # Fall back to standard players file if condensed not available
+        logger.warning("Condensed players file not found, falling back to standard file")
+        cache_path = CACHE_DIR / "players.parquet"
+        
         # Download if not in cache or older than 1 day
         if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
             version = await get_dataset_version("players")
@@ -211,96 +239,172 @@ def load_schedules(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     return df[df["season"].isin(seasons)] if seasons else df
 
 async def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
-    """Load injury reports for specified seasons."""
-    if seasons is None:
-        seasons = [2024]  # Use previous year since current might not be available
-    
-    dfs = []
-    errors = []
-    
-    for season in seasons:
-        try:
-            cache_path = CACHE_DIR / f"injuries_{season}.parquet"
+    """Load injury reports from the condensed parquet file."""
+    try:
+        # Try loading from condensed file first
+        condensed_path = CACHE_DIR / "injuries_condensed.parquet"
+        if condensed_path.exists():
+            logger.info(f"Loading injuries from condensed file: {condensed_path}")
+            injuries_df = pd.read_parquet(condensed_path)
             
-            # Download if not in cache or older than 1 hour (injuries update frequently)
-            if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 3600):
-                version = await get_dataset_version("injuries")
-                url = f"{NFLVERSE_BASE_URL}/{version}/injuries_{season}.parquet"
-                download_parquet(url, cache_path, f"injuries_{season}")
-            
-            # Load from cache
-            df = safe_read_parquet(cache_path, f"injuries_{season}")
-            dfs.append(df)
-        except Exception as e:
-            errors.append(f"Season {season}: {str(e)}")
-    
-    if not dfs and errors:
-        raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
-    
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+            # Filter by seasons if provided
+            if seasons:
+                injuries_df = injuries_df[injuries_df['season'].isin(seasons)]
+                
+            return injuries_df
+        
+        # Fall back to individual season files if condensed file not available
+        logger.warning("Condensed injuries file not found, falling back to individual season files")
+        if seasons is None:
+            seasons = [2024]  # Use previous year since current might not be available
+        
+        dfs = []
+        errors = []
+        
+        for season in seasons:
+            try:
+                cache_path = CACHE_DIR / f"injuries_{season}.parquet"
+                
+                # Download if not in cache or older than 1 hour (injuries update frequently)
+                if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 3600):
+                    version = await get_dataset_version("injuries")
+                    url = f"{NFLVERSE_BASE_URL}/{version}/injuries_{season}.parquet"
+                    download_parquet(url, cache_path, f"injuries_{season}")
+                
+                # Load from cache
+                df = safe_read_parquet(cache_path, f"injuries_{season}")
+                dfs.append(df)
+            except Exception as e:
+                errors.append(f"Season {season}: {str(e)}")
+        
+        if not dfs and errors:
+            raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
+        
+        return pd.concat(dfs) if dfs else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error loading injuries data: {str(e)}")
+        return pd.DataFrame()
 
 async def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
-    """Load team depth charts for specified seasons."""
-    if seasons is None:
-        seasons = [2024]  # Use previous year since current might not be available
-    
-    dfs = []
-    errors = []
-    
-    for season in seasons:
-        try:
-            cache_path = CACHE_DIR / f"depth_charts_{season}.parquet"
+    """Load team depth charts from the condensed parquet file."""
+    try:
+        # Try loading from condensed file first
+        condensed_path = CACHE_DIR / "depth_charts_condensed.parquet"
+        if condensed_path.exists():
+            logger.info(f"Loading depth charts from condensed file: {condensed_path}")
+            depth_df = pd.read_parquet(condensed_path)
             
-            # Download if not in cache or older than 1 day
-            if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
-                version = await get_dataset_version("depth_charts")
-                url = f"{NFLVERSE_BASE_URL}/{version}/depth_charts_{season}.parquet"
-                download_parquet(url, cache_path, f"depth_charts_{season}")
+            # Filter by seasons if provided
+            if seasons:
+                depth_df = depth_df[depth_df['season'].isin(seasons)]
+                
+            return depth_df
             
-            # Load from cache
-            df = safe_read_parquet(cache_path, f"depth_charts_{season}")
-            dfs.append(df)
-        except Exception as e:
-            errors.append(f"Season {season}: {str(e)}")
-    
-    if not dfs and errors:
-        raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
-    
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+        # Fall back to individual season files if condensed file not available
+        logger.warning("Condensed depth charts file not found, falling back to individual season files")
+        if seasons is None:
+            seasons = [2024]  # Use previous year since current might not be available
+        
+        dfs = []
+        errors = []
+        
+        for season in seasons:
+            try:
+                cache_path = CACHE_DIR / f"depth_charts_{season}.parquet"
+                
+                # Download if not in cache or older than 1 day
+                if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
+                    version = await get_dataset_version("depth_charts")
+                    url = f"{NFLVERSE_BASE_URL}/{version}/depth_charts_{season}.parquet"
+                    download_parquet(url, cache_path, f"depth_charts_{season}")
+                
+                # Load from cache
+                df = safe_read_parquet(cache_path, f"depth_charts_{season}")
+                dfs.append(df)
+            except Exception as e:
+                errors.append(f"Season {season}: {str(e)}")
+        
+        if not dfs and errors:
+            raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
+        
+        return pd.concat(dfs) if dfs else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error loading depth charts data: {str(e)}")
+        return pd.DataFrame()
 
 async def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
-    """Load roster data for specified seasons."""
-    if seasons is None:
-        seasons = [2024]  # Use current season by default
-    
-    dfs = []
-    errors = []
-    
-    for season in seasons:
-        try:
-            cache_path = CACHE_DIR / f"roster_{season}.parquet"
+    """Load roster data from the condensed parquet file."""
+    try:
+        # Try loading from condensed file first
+        condensed_path = CACHE_DIR / "rosters_condensed.parquet"
+        if condensed_path.exists():
+            logger.info(f"Loading rosters from condensed file: {condensed_path}")
+            rosters_df = pd.read_parquet(condensed_path)
             
-            # Download if not in cache
-            if not cache_path.exists():
-                version = await get_dataset_version("rosters")
-                url = f"{NFLVERSE_BASE_URL}/{version}/roster_{season}.parquet"
-                download_parquet(url, cache_path)
+            # Filter by seasons if provided
+            if seasons:
+                rosters_df = rosters_df[rosters_df['season'].isin(seasons)]
+                
+            return rosters_df
             
-            # Load from cache
-            df = safe_read_parquet(cache_path)
-            dfs.append(df)
-        except Exception as e:
-            errors.append(f"Season {season}: {str(e)}")
-    
-    if not dfs and errors:
-        raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
-    
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+        # Fall back to individual season files if condensed file not available
+        logger.warning("Condensed rosters file not found, falling back to individual season files")
+        if seasons is None:
+            seasons = [2024]  # Use current season by default
+        
+        dfs = []
+        errors = []
+        
+        for season in seasons:
+            try:
+                cache_path = CACHE_DIR / f"roster_{season}.parquet"
+                
+                # Download if not in cache
+                if not cache_path.exists():
+                    version = await get_dataset_version("rosters")
+                    url = f"{NFLVERSE_BASE_URL}/{version}/roster_{season}.parquet"
+                    download_parquet(url, cache_path)
+                
+                # Load from cache
+                df = safe_read_parquet(cache_path)
+                dfs.append(df)
+            except Exception as e:
+                errors.append(f"Season {season}: {str(e)}")
+        
+        if not dfs and errors:
+            raise RuntimeError(f"Failed to load any seasons. Errors: {'; '.join(errors)}")
+        
+        return pd.concat(dfs) if dfs else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error loading rosters data: {str(e)}")
+        return pd.DataFrame()
 
 def get_available_seasons() -> List[int]:
-    """Get list of available seasons in the dataset."""
+    """Get list of available seasons in the dataset from condensed files."""
     try:
-        # Check play-by-play files in cache
+        # First check if we have condensed files and extract seasons from them
+        condensed_files = [
+            "weekly_stats_condensed.parquet",
+            "play_by_play_condensed.parquet",
+            "rosters_condensed.parquet",
+            "depth_charts_condensed.parquet",
+            "injuries_condensed.parquet"
+        ]
+        
+        for file_name in condensed_files:
+            file_path = CACHE_DIR / file_name
+            if file_path.exists():
+                try:
+                    # Read the file and get unique seasons
+                    df = pd.read_parquet(file_path)
+                    if 'season' in df.columns:
+                        seasons = sorted(df['season'].unique().tolist())
+                        if seasons:
+                            return seasons
+                except Exception as e:
+                    logger.warning(f"Failed to read seasons from {file_name}: {e}")
+        
+        # If no condensed files or couldn't extract seasons, check individual files
         seasons = []
         for file in CACHE_DIR.glob("play_by_play_*.parquet"):
             try:
@@ -318,5 +422,6 @@ def get_available_seasons() -> List[int]:
         
         return sorted(seasons)
     except Exception as e:
+        logger.error(f"Error getting available seasons: {e}")
         # Fallback to current year only
         return [datetime.now().year] 
