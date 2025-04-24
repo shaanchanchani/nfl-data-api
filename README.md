@@ -46,8 +46,6 @@ nfl-data-api/
 ├── pyproject.toml                         # Package configuration
 ├── uv.lock                                # Dependency lock file
 ├── Procfile                               # Deployment configuration
-├── runtime.txt                            # Python runtime specification
-└── CLAUDE.md                              # Refactoring instructions
 ```
 
 ### Core Components
