@@ -35,7 +35,6 @@ from nfl_data.stats_helpers import (
     import_weekly_data
 )
 
-from nfl_data.player_cache import get_top_players_by_position
 from nfl_data.data_loader import (
     load_players, load_weekly_stats, load_rosters,
     load_depth_charts, load_injuries
@@ -111,41 +110,6 @@ async def get_seasons_endpoint():
     """Get list of available seasons in the dataset."""
     seasons = get_available_seasons()
     return {"seasons": seasons}
-
-@app.get("/api/players/top/{position}")
-@cache(expire=43200)  # 12 hours
-async def get_top_players(
-    position: str = Path(..., description="Player position (QB, RB, WR, TE)"),
-    seasons: List[int] = Query([2023, 2024], description="Seasons to analyze"),
-    limit: int = Query(24, description="Number of players to return", ge=1, le=100)
-):
-    """Get top players for a given position based on fantasy points."""
-    try:
-        # Validate position
-        position = position.upper()
-        if position not in ["QB", "RB", "WR", "TE"]:
-            raise HTTPException(status_code=400, detail="Invalid position. Must be one of: QB, RB, WR, TE")
-            
-        # Get top players
-        top_players = get_top_players_by_position(seasons, limit)
-        
-        if position not in top_players:
-            raise HTTPException(status_code=404, detail=f"No players found for position {position}")
-            
-        # Add headshot URLs to response
-        players = top_players[position][:limit]
-        for player in players:
-            if "gsis_id" in player:
-                player["headshot_url"] = get_headshot_url(player["gsis_id"])
-        
-        return {
-            "position": position,
-            "seasons": seasons,
-            "players": players
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting top players: {str(e)}")
 
 @app.get("/api/player/{name}")
 @cache(expire=43200)  # 12 hours
