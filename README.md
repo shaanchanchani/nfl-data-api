@@ -187,6 +187,3 @@ Manual refresh can be triggered by running:
 ```
 python src/etl_refresh.py
 ```
-
-## More Information
-- For questions or contributions, open an issue or PR
