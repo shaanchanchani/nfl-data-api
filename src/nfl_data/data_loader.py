@@ -140,10 +140,182 @@ def safe_read_parquet(path: Path, dataset_name: str = "") -> pd.DataFrame:
 
 def load_pbp_data() -> pd.DataFrame:
     """Load play-by-play data from the condensed parquet file."""
+    # First try the configured cache directory
     cache_path = CACHE_DIR / "play_by_play_condensed.parquet"
+    
+    # If file doesn't exist in the default cache directory, try the development path
     if not cache_path.exists():
-        raise FileNotFoundError(f"Condensed play-by-play file not found: {cache_path}")
+        dev_cache_path = Path(os.path.expanduser("~/dev/nfl-data-api/cache/play_by_play_condensed.parquet"))
+        if dev_cache_path.exists():
+            logger.info(f"Using development path for play-by-play data: {dev_cache_path}")
+            return pd.read_parquet(dev_cache_path)
+        else:
+            # Also try a relative path from current directory
+            relative_path = Path("./cache/play_by_play_condensed.parquet")
+            if relative_path.exists():
+                logger.info(f"Using relative path for play-by-play data: {relative_path}")
+                return pd.read_parquet(relative_path)
+            
+            raise FileNotFoundError(f"Condensed play-by-play file not found: {cache_path}, {dev_cache_path}, or {relative_path}")
+    
     return pd.read_parquet(cache_path)
+
+def extract_situational_stats_from_pbp(pbp_data: pd.DataFrame, player_id_variations: list, situation_type: str, 
+                                       season: Optional[int] = None, week: Optional[int] = None) -> Dict:
+    """
+    Extract situation-specific stats from play-by-play data for a player.
+    
+    Args:
+        pbp_data: DataFrame containing play-by-play data
+        player_id_variations: List of player IDs to search for
+        situation_type: Type of situation to filter by (red_zone, third_down, etc.)
+        season: Optional season to filter by
+        week: Optional week to filter by
+        
+    Returns:
+        Dictionary of stats for the specified situation
+    """
+    # Make sure player_id_variations is a list and not empty
+    if not player_id_variations:
+        return {"error": "No player IDs provided"}
+    
+    # Skip known empty or invalid IDs
+    valid_player_ids = [pid for pid in player_id_variations if pid and not pd.isna(pid)]
+    if not valid_player_ids:
+        return {"error": "No valid player IDs provided"}
+    
+    # Log player IDs we're looking for
+    logger.info(f"Searching for player IDs in PBP data: {valid_player_ids}")
+    
+    # Initialize a mask for all plays matching this player
+    player_plays_mask = False
+    
+    # Only check columns that exist in the dataframe and are more likely to have this player
+    player_cols = [
+        'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+        'lateral_receiver_player_id', 'lateral_rusher_player_id',
+        'fumbled_1_player_id', 'fumbled_2_player_id'
+    ]
+    
+    # Filter the columns to only those that exist in the dataframe
+    valid_cols = [col for col in player_cols if col in pbp_data.columns]
+    logger.info(f"Valid player ID columns in PBP data: {valid_cols}")
+    
+    # Check each player ID in each valid column
+    for pid in valid_player_ids:
+        for col in valid_cols:
+            player_plays_mask = player_plays_mask | (pbp_data[col] == pid)
+            
+    # Log number of plays found for debugging
+    play_count = player_plays_mask.sum()
+    logger.info(f"Found {play_count} plays involving the player")
+    
+    # Get plays involving this player
+    player_plays = pbp_data[player_plays_mask].copy()
+    
+    # Apply season filter to PBP data if specified
+    if season:
+        player_plays = player_plays[player_plays['season'] == season]
+        logger.info(f"After season filter: {len(player_plays)} plays")
+    
+    # Apply week filter to PBP data if specified
+    if week:
+        player_plays = player_plays[player_plays['week'] == week]
+        logger.info(f"After week filter: {len(player_plays)} plays")
+        
+    # Apply situation-specific filters
+    if situation_type == "red_zone":
+        # Red zone plays (inside the 20 yard line)
+        situation_plays = player_plays[player_plays['yardline_100'] <= 20]
+        logger.info(f"Found {len(situation_plays)} red zone plays for player")
+        
+    elif situation_type == "third_down":
+        # Third down plays
+        situation_plays = player_plays[player_plays['down'] == 3]
+        logger.info(f"Found {len(situation_plays)} third down plays for player")
+        
+    elif situation_type == "fourth_down":
+        # Fourth down plays
+        situation_plays = player_plays[player_plays['down'] == 4]
+        logger.info(f"Found {len(situation_plays)} fourth down plays for player")
+        
+    elif situation_type == "goal_line":
+        # Goal line plays (inside the 5 yard line)
+        situation_plays = player_plays[player_plays['yardline_100'] <= 5]
+        logger.info(f"Found {len(situation_plays)} goal line plays for player")
+        
+    elif situation_type == "two_minute_drill":
+        # Two minute drill (last 2 minutes of half or game)
+        two_min_mask = (
+            ((player_plays['qtr'] == 2) & (player_plays['half_seconds_remaining'] <= 120)) |
+            ((player_plays['qtr'] == 4) & (player_plays['half_seconds_remaining'] <= 120))
+        )
+        situation_plays = player_plays[two_min_mask]
+        logger.info(f"Found {len(situation_plays)} two-minute drill plays for player")
+    else:
+        # Default to all plays if situation type not recognized
+        situation_plays = player_plays
+        logger.warning(f"Unrecognized situation type: {situation_type}")
+    
+    # If we don't have any plays, return early
+    if situation_plays.empty:
+        return {"play_count": 0, "note": f"No {situation_type} plays found for this player"}
+    
+    # Calculate basic stats from situation plays
+    stats = {}
+    
+    # Extract games with situation plays
+    stats['games'] = int(situation_plays['game_id'].nunique())
+    stats['play_count'] = int(len(situation_plays))
+    
+    # Passing stats
+    passer_plays = situation_plays[situation_plays['passer_player_id'].isin(valid_player_ids)]
+    if not passer_plays.empty:
+        stats['passing_attempts'] = int(len(passer_plays))
+        stats['passing_completions'] = int(len(passer_plays[passer_plays['complete_pass'] == 1])) if 'complete_pass' in passer_plays.columns else 0
+        stats['passing_yards'] = float(passer_plays['yards_gained'].sum()) if 'yards_gained' in passer_plays.columns else 0
+        stats['passing_tds'] = int(passer_plays['pass_touchdown'].sum()) if 'pass_touchdown' in passer_plays.columns else 0
+        stats['interceptions'] = int(passer_plays['interception'].sum()) if 'interception' in passer_plays.columns else 0
+        stats['sacks'] = int(passer_plays['sack'].sum()) if 'sack' in passer_plays.columns else 0
+        stats['passing_epa'] = float(passer_plays['epa'].sum()) if 'epa' in passer_plays.columns else 0
+    
+    # Rushing stats  
+    rusher_plays = situation_plays[situation_plays['rusher_player_id'].isin(valid_player_ids)]
+    if not rusher_plays.empty:
+        stats['rushing_attempts'] = int(len(rusher_plays))
+        stats['rushing_yards'] = float(rusher_plays['yards_gained'].sum()) if 'yards_gained' in rusher_plays.columns else 0
+        stats['rushing_tds'] = int(rusher_plays['rush_touchdown'].sum()) if 'rush_touchdown' in rusher_plays.columns else 0
+        stats['rushing_epa'] = float(rusher_plays['epa'].sum()) if 'epa' in rusher_plays.columns else 0
+        stats['rushing_fumbles'] = int(rusher_plays['fumble_lost'].sum()) if 'fumble_lost' in rusher_plays.columns else 0
+    
+    # Receiving stats
+    receiver_plays = situation_plays[situation_plays['receiver_player_id'].isin(valid_player_ids)]
+    if not receiver_plays.empty:
+        stats['targets'] = int(len(receiver_plays))
+        stats['receptions'] = int(len(receiver_plays[receiver_plays['complete_pass'] == 1])) if 'complete_pass' in receiver_plays.columns else 0
+        stats['receiving_yards'] = float(receiver_plays['yards_gained'].sum()) if 'yards_gained' in receiver_plays.columns else 0
+        stats['receiving_tds'] = int(receiver_plays['pass_touchdown'].sum()) if 'pass_touchdown' in receiver_plays.columns else 0
+        if 'air_yards' in receiver_plays.columns:
+            stats['air_yards'] = float(receiver_plays['air_yards'].sum())
+        if 'yards_after_catch' in receiver_plays.columns:
+            stats['yards_after_catch'] = float(receiver_plays['yards_after_catch'].sum())
+    
+    # Add a summary field for total TDs
+    total_tds = 0
+    if 'passing_tds' in stats:
+        total_tds += stats['passing_tds']
+    if 'rushing_tds' in stats:
+        total_tds += stats['rushing_tds']
+    if 'receiving_tds' in stats:
+        total_tds += stats['receiving_tds']
+    stats['total_tds'] = total_tds
+    
+    # Success rate - success for offense vs expected
+    if 'success' in situation_plays.columns:
+        success_plays = situation_plays[situation_plays['success'] == 1].shape[0]
+        stats['success_rate'] = round(success_plays / len(situation_plays) * 100, 1)
+    
+    return stats
 
 async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load weekly player stats from the condensed parquet file."""

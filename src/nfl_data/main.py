@@ -65,7 +65,8 @@ from nfl_data.stats_helpers import (
 
 from nfl_data.data_loader import (
     load_players, load_weekly_stats, load_rosters,
-    load_depth_charts, load_injuries
+    load_depth_charts, load_injuries, load_pbp_data,
+    extract_situational_stats_from_pbp
 )
 
 # Load environment variables
@@ -226,6 +227,14 @@ class AggregationType(str, Enum):
     CAREER = "career"
     SEASON = "season"
     WEEK = "week"
+
+class SituationType(str, Enum):
+    """Enumeration of situation types for filtered statistics."""
+    RED_ZONE = "red_zone"
+    THIRD_DOWN = "third_down"
+    FOURTH_DOWN = "fourth_down"
+    GOAL_LINE = "goal_line"
+    TWO_MINUTE_DRILL = "two_minute_drill"
     
 @app.get("/api/player/{name}/stats")
 @cache(expire=43200)  # 12 hours
@@ -234,9 +243,19 @@ async def get_player_stats(
     aggregate: AggregationType = Query(AggregationType.SEASON, description="Aggregation level for statistics"),
     season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)"),
     week: Optional[int] = Query(None, description="Filter by week number (only applicable when aggregate=week)"),
-    season_type: Optional[str] = Query(None, description="Filter by season type (REG or POST)")
+    season_type: Optional[str] = Query(None, description="Filter by season type (REG or POST)"),
+    opponent: Optional[str] = Query(None, description="Filter by opponent team abbreviation"),
+    home_away: Optional[str] = Query(None, description="Filter by home/away games", enum=["home", "away"]),
+    situation: Optional[SituationType] = Query(None, description="Filter by game situation")    
 ):
-    """Get player statistics with flexible aggregation options."""
+    """Get player statistics with flexible aggregation options and situational filters.
+    
+    - aggregate: Choose between career totals, season totals, or week-by-week breakdown
+    - season/week/season_type: Filter by season, week, or season type
+    - opponent: Filter stats against a specific opponent
+    - home_away: Filter for home or away games only
+    - situation: Filter for specific game situations like red zone, third down, etc.
+    """
     try:
         # Resolve player first
         player, alternatives = await resolve_player(name, season)
@@ -270,10 +289,72 @@ async def get_player_stats(
         # Apply additional filters
         if season:
             player_stats = player_stats[player_stats['season'] == season]
-        if week and aggregate == AggregationType.WEEK:
+        if week and aggregate != AggregationType.CAREER:
             player_stats = player_stats[player_stats['week'] == week]
         if season_type:
             player_stats = player_stats[player_stats['season_type'] == season_type]
+        if opponent:
+            player_stats = player_stats[player_stats['opponent_team'] == opponent.upper()]
+        if home_away:
+            player_team = player.get("team_abbr", "")
+            if home_away == "home":
+                player_stats = player_stats[player_stats['recent_team'] == player_stats['opponent_team'].apply(lambda x: x != player_team)]
+            else:  # away
+                player_stats = player_stats[player_stats['recent_team'] == player_stats['opponent_team'].apply(lambda x: x == player_team)]
+            
+        # Apply situational filters if available - this requires play-by-play data
+        situation_applied = False
+        situational_stats = {}
+        
+        if situation:
+            try:
+                logger.info(f"Loading play-by-play data for situation filtering: {situation}")
+                pbp_data = load_pbp_data()
+                
+                # Create a list of player IDs to search for in various PBP columns
+                player_id_variations = [player_id]
+                if 'gsis_it_id' in player:
+                    player_id_variations.append(player['gsis_it_id'])
+                
+                # Extract situation-specific stats directly from play-by-play data
+                try:
+                    situational_stats = extract_situational_stats_from_pbp(
+                        pbp_data=pbp_data,
+                        player_id_variations=player_id_variations,
+                        situation_type=situation.value,
+                        season=season,
+                        week=week
+                    )
+                    logger.info(f"Extracted situational stats for {situation.value}: {situational_stats}")
+                except Exception as e:
+                    logger.error(f"Error extracting situational stats: {e}")
+                    situational_stats = {"error": str(e)}
+                
+                # If we found situation plays, mark as applied
+                if situational_stats:
+                    situation_applied = True
+                    logger.info(f"Successfully extracted {situation} stats: {situational_stats}")
+                    
+                    # Force situational_stats to have at least one entry to ensure it's included in the response
+                    if len(situational_stats) == 0:
+                        situational_stats['play_count'] = 0
+                    
+                    # We still need weekly stats for games where this player was involved in this situation
+                    # This is needed for aggregate-level endpoints
+                    
+                    # If games info is available, filter weekly stats to just those games
+                    if 'games' in situational_stats and situational_stats['games'] > 0:
+                        
+                        # Identify games with situation plays - we'll add this to the response
+                        situational_stats['situation_games'] = situational_stats['games']
+                        
+                        # For now, keep weekly stats as they were - we'll use our direct situational stats
+                        # for the detailed breakdown. This allows us to maintain the aggregation mechanisms
+                        # established elsewhere in the code.
+                            
+            except Exception as e:
+                logger.error(f"Error applying situation filter: {str(e)}")
+                # Don't raise an exception, just log the error and continue without situation filtering
             
         # Check if we have data
         if player_stats.empty:
@@ -282,6 +363,14 @@ async def get_player_stats(
                 "name": player["display_name"],
                 "position": position,
                 "aggregation": aggregate,
+                "filters_applied": {
+                    "season": season,
+                    "week": week,
+                    "season_type": season_type,
+                    "opponent": opponent,
+                    "home_away": home_away,
+                    "situation": situation.value if situation else None
+                },
                 "stats": []
             }
             
@@ -332,8 +421,13 @@ async def get_player_stats(
                         
                         # Calculate derived stats
                         career_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                        career_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
                         
-                    elif position in ["RB", "WR", "TE"]:
+                        # Add advanced metrics if available
+                        if 'passing_epa' in group.columns:
+                            career_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
+                        
+                    elif position == "RB":
                         # Sum counting stats
                         career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
                         career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
@@ -343,10 +437,39 @@ async def get_player_stats(
                         career_summary["targets"] = int(group['targets'].sum())
                         
                         # Calculate derived stats
+                        carries = group['carries'].sum()
+                        career_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
                         career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
                         
-                    # Add fantasy points
-                    if 'fantasy_points_ppr' in group:
+                        # Add advanced metrics if available
+                        if 'rushing_epa' in group.columns:
+                            career_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
+                        
+                    elif position in ["WR", "TE"]:
+                        # Sum counting stats
+                        career_summary["targets"] = int(group['targets'].sum())
+                        career_summary["receptions"] = int(group['receptions'].sum())
+                        career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                        career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        
+                        # Calculate derived stats
+                        targets = group['targets'].sum()
+                        career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                        career_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
+                        career_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
+                        
+                        # Add advanced metrics if available
+                        if 'receiving_air_yards' in group.columns:
+                            career_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
+                        if 'receiving_yards_after_catch' in group.columns:
+                            career_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
+                        if 'wopr' in group.columns:
+                            career_summary["average_wopr"] = float(group['wopr'].mean())
+                        
+                    # Add fantasy points for all positions
+                    if 'fantasy_points_ppr' in group.columns:
                         career_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
                         career_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
                         
@@ -378,8 +501,13 @@ async def get_player_stats(
                     
                     # Calculate derived stats
                     season_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                    season_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
                     
-                elif position in ["RB", "WR", "TE"]:
+                    # Add advanced metrics if available
+                    if 'passing_epa' in group.columns:
+                        season_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
+                    
+                elif position == "RB":
                     # Sum counting stats
                     season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
                     season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
@@ -389,10 +517,39 @@ async def get_player_stats(
                     season_summary["targets"] = int(group['targets'].sum())
                     
                     # Calculate derived stats
+                    carries = group['carries'].sum()
+                    season_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
                     season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
                     
-                # Add fantasy points
-                if 'fantasy_points_ppr' in group:
+                    # Add advanced metrics if available
+                    if 'rushing_epa' in group.columns:
+                        season_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
+                    
+                elif position in ["WR", "TE"]:
+                    # Sum counting stats
+                    season_summary["targets"] = int(group['targets'].sum())
+                    season_summary["receptions"] = int(group['receptions'].sum())
+                    season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                    season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                    
+                    # Calculate derived stats
+                    targets = group['targets'].sum()
+                    season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                    season_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
+                    season_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
+                    
+                    # Add advanced metrics if available
+                    if 'receiving_air_yards' in group.columns:
+                        season_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
+                    if 'receiving_yards_after_catch' in group.columns:
+                        season_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
+                    if 'wopr' in group.columns:
+                        season_summary["average_wopr"] = float(group['wopr'].mean())
+                    
+                # Add fantasy points for all positions
+                if 'fantasy_points_ppr' in group.columns:
                     season_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
                     season_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
                     
@@ -409,14 +566,99 @@ async def get_player_stats(
         elif stats_data and aggregate == AggregationType.WEEK:
             stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
             
-        return {
+        # Build response with standard stats data and situational data if available
+        response = {
             "player_id": player_id,
             "name": player["display_name"],
             "position": position,
             "team": player.get("team_abbr", ""),
             "aggregation": aggregate,
+            "filters_applied": {
+                "season": season,
+                "week": week,
+                "season_type": season_type,
+                "opponent": opponent,
+                "home_away": home_away,
+                "situation": situation.value if situation else None,
+                "situation_applied": situation_applied if situation else None
+            },
             "stats": stats_data
         }
+        
+        # Always include situational stats if a situation was requested
+        if situation:
+            # Force log the situational stats
+            logger.info(f"MANDATORY LOG - Situation applied: {situation_applied}")
+            logger.info(f"MANDATORY LOG - Situational stats: {situational_stats}")
+            
+            # Ensure situational_stats is a dictionary
+            if not isinstance(situational_stats, dict):
+                situational_stats = {}
+            
+            # Add a placeholder if we have no actual stats to show
+            if not situational_stats:
+                situational_stats["note"] = f"No {situation.value} plays found for this player in the specified timeframe"
+                
+            # Clean up situational stats - convert NaN to None and format numbers
+            clean_situation_stats = {}
+            for k, v in situational_stats.items():
+                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+                    clean_situation_stats[k] = None
+                elif isinstance(v, (np.integer, np.floating)):
+                    clean_situation_stats[k] = float(v) if isinstance(v, np.floating) else int(v)
+                else:
+                    clean_situation_stats[k] = v
+            
+            # Only add derived stats if we actually have the raw stats
+            if 'passing_attempts' in clean_situation_stats or 'rushing_attempts' in clean_situation_stats or 'targets' in clean_situation_stats:
+                # Add derived stats for QB
+                if position == "QB" and 'passing_attempts' in clean_situation_stats and clean_situation_stats['passing_attempts'] > 0:
+                    # Calculate completion percentage
+                    if 'passing_completions' in clean_situation_stats:
+                        completions = clean_situation_stats['passing_completions']
+                        attempts = clean_situation_stats['passing_attempts']
+                        clean_situation_stats['completion_percentage'] = round((completions / attempts) * 100, 1)
+                    
+                    # Calculate yards per attempt
+                    if 'passing_yards' in clean_situation_stats:
+                        clean_situation_stats['yards_per_attempt'] = round(clean_situation_stats['passing_yards'] / clean_situation_stats['passing_attempts'], 1)
+                    
+                    # Calculate EPA per play
+                    if 'passing_epa' in clean_situation_stats:
+                        clean_situation_stats['passing_epa_per_play'] = round(clean_situation_stats['passing_epa'] / clean_situation_stats['passing_attempts'], 3)
+                
+                # Add derived stats for RB
+                if position == "RB" and 'rushing_attempts' in clean_situation_stats and clean_situation_stats['rushing_attempts'] > 0:
+                    # Calculate yards per carry
+                    if 'rushing_yards' in clean_situation_stats:
+                        clean_situation_stats['yards_per_carry'] = round(clean_situation_stats['rushing_yards'] / clean_situation_stats['rushing_attempts'], 1)
+                    
+                    # Calculate EPA per rush
+                    if 'rushing_epa' in clean_situation_stats:
+                        clean_situation_stats['rushing_epa_per_play'] = round(clean_situation_stats['rushing_epa'] / clean_situation_stats['rushing_attempts'], 3)
+                
+                # Add derived stats for WR/TE
+                if position in ["WR", "TE"] and 'targets' in clean_situation_stats and clean_situation_stats['targets'] > 0:
+                    # Calculate catch rate
+                    if 'receptions' in clean_situation_stats:
+                        clean_situation_stats['catch_rate'] = round((clean_situation_stats['receptions'] / clean_situation_stats['targets']) * 100, 1)
+                    
+                    # Calculate yards per reception
+                    if 'receiving_yards' in clean_situation_stats and 'receptions' in clean_situation_stats and clean_situation_stats['receptions'] > 0:
+                        clean_situation_stats['yards_per_reception'] = round(clean_situation_stats['receiving_yards'] / clean_situation_stats['receptions'], 1)
+                    
+                    # Calculate yards per target
+                    if 'receiving_yards' in clean_situation_stats:
+                        clean_situation_stats['yards_per_target'] = round(clean_situation_stats['receiving_yards'] / clean_situation_stats['targets'], 1)
+            
+            # Add situational stats to response
+            response["situational_stats"] = clean_situation_stats
+            
+            # Force add at least one stat if we don't have any
+            if not response["situational_stats"] and situation_applied:
+                response["situational_stats"] = {"note": f"No detailed {situation.value} stats found for this player"}
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error getting player stats: {str(e)}")
@@ -982,3 +1224,102 @@ async def get_cache_status():
     }
     
     return stats
+
+@app.get("/api/debug/pbp-test")
+async def test_pbp_data():
+    """Diagnostic endpoint to test loading play-by-play data."""
+    
+@app.get("/api/debug/situation-test")
+async def test_situation_extraction():
+    """Test the situation extraction function."""
+    try:
+        # Load PBP data
+        pbp_data = load_pbp_data()
+        
+        # Extract red zone stats for Mahomes as a test
+        mahomes_id = "00-0033873"
+        
+        # Extract situation-specific stats from play-by-play data
+        situation_stats = extract_situational_stats_from_pbp(
+            pbp_data=pbp_data,
+            player_id_variations=[mahomes_id],
+            situation_type="red_zone",
+            season=2023
+        )
+        
+        # Return the stats directly
+        return {
+            "player_id": mahomes_id,
+            "player_name": "Patrick Mahomes",
+            "situation": "red_zone",
+            "season": 2023,
+            "stats": situation_stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing situation extraction: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    try:
+        pbp_data = load_pbp_data()
+        
+        # Get a sample of columns that should be present for situation filtering
+        situation_columns = [
+            'yardline_100', 'down', 'qtr', 'half_seconds_remaining',
+            'game_id', 'week', 'season'
+        ]
+        
+        # Check if the columns exist
+        columns_exist = {col: col in pbp_data.columns for col in situation_columns}
+        
+        # Get sample of a few records for key situation-related fields
+        sample_data = {}
+        for col in situation_columns:
+            if col in pbp_data.columns:
+                # Get unique values and their counts for categorical fields
+                if col in ['down', 'qtr', 'season', 'week']:
+                    value_counts = pbp_data[col].value_counts().to_dict()
+                    # Convert numpy types to Python native types
+                    cleaned_counts = {int(k) if not pd.isna(k) else None: int(v) for k, v in value_counts.items()}
+                    sample_data[f"{col}_counts"] = cleaned_counts
+                else:
+                    # For other columns, just show basic stats
+                    if pbp_data[col].dtype in [np.float64, np.int64]:
+                        sample_data[f"{col}_stats"] = {
+                            "min": float(pbp_data[col].min()) if not pd.isna(pbp_data[col].min()) else None,
+                            "max": float(pbp_data[col].max()) if not pd.isna(pbp_data[col].max()) else None,
+                            "null_count": int(pbp_data[col].isna().sum())
+                        }
+        
+        # Get player ID columns information
+        player_id_columns = [
+            'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+            'lateral_receiver_player_id', 'lateral_rusher_player_id',
+            'fumbled_1_player_id', 'fumbled_2_player_id'
+        ]
+        
+        player_column_stats = {}
+        for col in player_id_columns:
+            if col in pbp_data.columns:
+                non_null_count = int(pbp_data[col].notna().sum())
+                player_column_stats[col] = {
+                    "non_null_count": non_null_count,
+                    "example_ids": pbp_data[col].dropna().sample(min(5, non_null_count)).tolist() if non_null_count > 0 else []
+                }
+        
+        return {
+            "success": True,
+            "shape": pbp_data.shape,
+            "columns_exist": columns_exist,
+            "sample_data": sample_data,
+            "player_id_columns": player_column_stats
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
