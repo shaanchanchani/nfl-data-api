@@ -698,7 +698,11 @@ def get_position_specific_stats_from_pbp(
         passing_plays = filtered_plays[filtered_plays['pass_attempt'] == 1]
         total_attempts = len(passing_plays)
         completions = passing_plays['complete_pass'].fillna(0).sum()
-        passing_yards = passing_plays['passing_yards'].fillna(0).sum()
+        # Patch: Always provide 'passing_yards' as sum of 'yards_gained' for pass attempts
+        if 'passing_yards' in passing_plays.columns:
+            passing_yards = passing_plays['passing_yards'].fillna(0).sum()
+        else:
+            passing_yards = passing_plays['yards_gained'].fillna(0).sum()
         passing_tds = passing_plays['pass_touchdown'].fillna(0).sum()
         interceptions = passing_plays['interception'].fillna(0).sum()
         sacks = filtered_plays['sack'].fillna(0).sum()

@@ -394,171 +394,290 @@ async def get_player_stats(
             
         # Process stats based on aggregation level
         stats_data = []
-        
-        if aggregate == AggregationType.CAREER:
-            # Aggregate stats across all seasons for a career total
-            if not player_stats.empty:
-                # Group by season_type to aggregate regular season and postseason separately
-                grouped = player_stats.groupby('season_type')
-                
-                for season_type_val, group in grouped:
-                    career_summary = {}
+
+        # If a situation is specified, use play-by-play data for aggregation
+        if situation:
+            logger.info(f"Aggregating main stats from PBP for situation: {situation}")
+            pbp_data = load_pbp_data()
+            player_id_variations = [player_id]
+            if 'gsis_it_id' in player:
+                player_id_variations.append(player['gsis_it_id'])
+
+            # Build a mask for all plays involving this player (reuse logic from extract_situational_stats_from_pbp)
+            player_cols = [
+                'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+                'lateral_receiver_player_id', 'lateral_rusher_player_id',
+                'fumbled_1_player_id', 'fumbled_2_player_id'
+            ]
+            valid_cols = [col for col in player_cols if col in pbp_data.columns]
+            player_plays_mask = False
+            for pid in player_id_variations:
+                for col in valid_cols:
+                    player_plays_mask = player_plays_mask | (pbp_data[col] == pid)
+            player_plays = pbp_data[player_plays_mask].copy()
+            if season:
+                player_plays = player_plays[player_plays['season'] == season]
+            if week and aggregate != AggregationType.CAREER:
+                player_plays = player_plays[player_plays['week'] == week]
+            if season_type:
+                player_plays = player_plays[player_plays['season_type'] == season_type]
+            # Apply situation filter
+            if situation.value == "red_zone":
+                situation_plays = player_plays[player_plays['yardline_100'] <= 20]
+            elif situation.value == "third_down":
+                situation_plays = player_plays[player_plays['down'] == 3]
+            elif situation.value == "fourth_down":
+                situation_plays = player_plays[player_plays['down'] == 4]
+            elif situation.value == "goal_line":
+                situation_plays = player_plays[player_plays['yardline_100'] <= 5]
+            elif situation.value == "two_minute_drill":
+                two_min_mask = (
+                    ((player_plays['qtr'] == 2) & (player_plays['half_seconds_remaining'] <= 120)) |
+                    ((player_plays['qtr'] == 4) & (player_plays['half_seconds_remaining'] <= 120))
+                )
+                situation_plays = player_plays[two_min_mask]
+            else:
+                situation_plays = player_plays
+
+            # If no plays, return empty stats
+            if situation_plays.empty:
+                stats_data = []
+            else:
+                # Ensure 'season_type' exists for grouping
+                if 'season_type' not in situation_plays.columns:
+                    situation_plays['season_type'] = 'REG'
+                # Aggregation logic
+                if aggregate == AggregationType.CAREER:
+                    # All plays together
+                    stats = get_position_specific_stats_from_pbp(
+                        situation_plays, position, player_id=player_id
+                    )
+                    # Ensure all expected keys are present
+                    if position == "QB":
+                        for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
+                            stats.setdefault(k, 0)
+                    elif position == "RB":
+                        for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
+                            stats.setdefault(k, 0)
+                    elif position in ["WR", "TE"]:
+                        for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
+                            stats.setdefault(k, 0)
+                    stats_data.append(sanitize_record(stats))
+                elif aggregate == AggregationType.SEASON:
+                    # Group by season and season_type
+                    grouped = situation_plays.groupby(['season', 'season_type'])
+                    for (season_val, season_type_val), group in grouped:
+                        stats = get_position_specific_stats_from_pbp(
+                            group, position, player_id=player_id
+                        )
+                        # Ensure all expected keys are present
+                        if position == "QB":
+                            for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
+                                stats.setdefault(k, 0)
+                        elif position == "RB":
+                            for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
+                                stats.setdefault(k, 0)
+                        elif position in ["WR", "TE"]:
+                            for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
+                                stats.setdefault(k, 0)
+                        stats["season"] = int(season_val)
+                        stats["season_type"] = season_type_val
+                        stats_data.append(sanitize_record(stats))
+                elif aggregate == AggregationType.WEEK:
+                    # Group by season, week, and season_type
+                    grouped = situation_plays.groupby(['season', 'week', 'season_type'])
+                    for (season_val, week_val, season_type_val), group in grouped:
+                        stats = get_position_specific_stats_from_pbp(
+                            group, position, player_id=player_id
+                        )
+                        # Ensure all expected keys are present
+                        if position == "QB":
+                            for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
+                                stats.setdefault(k, 0)
+                        elif position == "RB":
+                            for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
+                                stats.setdefault(k, 0)
+                        elif position in ["WR", "TE"]:
+                            for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
+                                stats.setdefault(k, 0)
+                        stats["season"] = int(season_val)
+                        stats["week"] = int(week_val)
+                        stats["season_type"] = season_type_val
+                        stats_data.append(sanitize_record(stats))
+                # Sort as before
+                if stats_data and aggregate == AggregationType.SEASON:
+                    stats_data.sort(key=lambda x: (x.get('season', 0), x.get('season_type', '')), reverse=True)
+                elif stats_data and aggregate == AggregationType.WEEK:
+                    stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
+        else:
+            # Default: use weekly_stats as before
+            # Process stats based on aggregation level
+            stats_data = []
+            
+            if aggregate == AggregationType.CAREER:
+                # Aggregate stats across all seasons for a career total
+                if not player_stats.empty:
+                    # Group by season_type to aggregate regular season and postseason separately
+                    grouped = player_stats.groupby('season_type')
                     
-                    # Common stats across positions
-                    career_summary["season_type"] = season_type_val
-                    career_summary["games_played"] = len(group)
+                    for season_type_val, group in grouped:
+                        career_summary = {}
+                        
+                        # Common stats across positions
+                        career_summary["season_type"] = season_type_val
+                        career_summary["games_played"] = len(group)
+                        
+                        # Handle position-specific aggregations
+                        if position == "QB":
+                            # Sum counting stats
+                            career_summary["passing_yards"] = float(group['passing_yards'].sum())
+                            career_summary["passing_tds"] = int(group['passing_tds'].sum())
+                            career_summary["interceptions"] = int(group['interceptions'].sum())
+                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                            completions = group['completions'].sum()
+                            attempts = group['attempts'].sum()
+                            
+                            # Calculate derived stats
+                            career_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                            career_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
+                            
+                            # Add advanced metrics if available
+                            if 'passing_epa' in group.columns:
+                                career_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
+                            
+                        elif position == "RB":
+                            # Sum counting stats
+                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                            career_summary["receptions"] = int(group['receptions'].sum())
+                            career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                            career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                            career_summary["targets"] = int(group['targets'].sum())
+                            
+                            # Calculate derived stats
+                            carries = group['carries'].sum()
+                            career_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
+                            career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                            
+                            # Add advanced metrics if available
+                            if 'rushing_epa' in group.columns:
+                                career_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
+                            
+                        elif position in ["WR", "TE"]:
+                            # Sum counting stats
+                            career_summary["targets"] = int(group['targets'].sum())
+                            career_summary["receptions"] = int(group['receptions'].sum())
+                            career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                            career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                            
+                            # Calculate derived stats
+                            targets = group['targets'].sum()
+                            career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                            career_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
+                            career_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
+                            
+                            # Add advanced metrics if available
+                            if 'receiving_air_yards' in group.columns:
+                                career_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
+                            if 'receiving_yards_after_catch' in group.columns:
+                                career_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
+                            if 'wopr' in group.columns:
+                                career_summary["average_wopr"] = float(group['wopr'].mean())
+                            
+                        # Add fantasy points for all positions
+                        if 'fantasy_points_ppr' in group.columns:
+                            career_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
+                            career_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
+                            
+                        stats_data.append(sanitize_record(career_summary))
+                        
+            elif aggregate == AggregationType.SEASON:
+                # Aggregate stats by season
+                # Group by season and season_type
+                grouped = player_stats.groupby(['season', 'season_type'])
+                
+                for (season_val, season_type_val), group in grouped:
+                    season_summary = {}
+                    
+                    # Common stats
+                    season_summary["season"] = int(season_val)
+                    season_summary["season_type"] = season_type_val
+                    season_summary["games_played"] = len(group)
                     
                     # Handle position-specific aggregations
                     if position == "QB":
                         # Sum counting stats
-                        career_summary["passing_yards"] = float(group['passing_yards'].sum())
-                        career_summary["passing_tds"] = int(group['passing_tds'].sum())
-                        career_summary["interceptions"] = int(group['interceptions'].sum())
-                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        season_summary["passing_yards"] = float(group['passing_yards'].sum())
+                        season_summary["passing_tds"] = int(group['passing_tds'].sum())
+                        season_summary["interceptions"] = int(group['interceptions'].sum())
+                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
                         completions = group['completions'].sum()
                         attempts = group['attempts'].sum()
                         
                         # Calculate derived stats
-                        career_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
-                        career_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
+                        season_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
+                        season_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
                         
                         # Add advanced metrics if available
                         if 'passing_epa' in group.columns:
-                            career_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
+                            season_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
                         
                     elif position == "RB":
                         # Sum counting stats
-                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                        career_summary["receptions"] = int(group['receptions'].sum())
-                        career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                        career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                        career_summary["targets"] = int(group['targets'].sum())
+                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        season_summary["receptions"] = int(group['receptions'].sum())
+                        season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                        season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                        season_summary["targets"] = int(group['targets'].sum())
                         
                         # Calculate derived stats
                         carries = group['carries'].sum()
-                        career_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
-                        career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                        season_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
+                        season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
                         
                         # Add advanced metrics if available
                         if 'rushing_epa' in group.columns:
-                            career_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
+                            season_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
                         
                     elif position in ["WR", "TE"]:
                         # Sum counting stats
-                        career_summary["targets"] = int(group['targets'].sum())
-                        career_summary["receptions"] = int(group['receptions'].sum())
-                        career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                        career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                        career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
+                        season_summary["targets"] = int(group['targets'].sum())
+                        season_summary["receptions"] = int(group['receptions'].sum())
+                        season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
+                        season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
+                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
+                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
                         
                         # Calculate derived stats
                         targets = group['targets'].sum()
-                        career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                        career_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
-                        career_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
+                        season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
+                        season_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
+                        season_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
                         
                         # Add advanced metrics if available
                         if 'receiving_air_yards' in group.columns:
-                            career_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
+                            season_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
                         if 'receiving_yards_after_catch' in group.columns:
-                            career_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
+                            season_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
                         if 'wopr' in group.columns:
-                            career_summary["average_wopr"] = float(group['wopr'].mean())
+                            season_summary["average_wopr"] = float(group['wopr'].mean())
                         
                     # Add fantasy points for all positions
                     if 'fantasy_points_ppr' in group.columns:
-                        career_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
-                        career_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
+                        season_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
+                        season_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
                         
-                    stats_data.append(sanitize_record(career_summary))
+                    stats_data.append(sanitize_record(season_summary))
                     
-        elif aggregate == AggregationType.SEASON:
-            # Aggregate stats by season
-            # Group by season and season_type
-            grouped = player_stats.groupby(['season', 'season_type'])
-            
-            for (season_val, season_type_val), group in grouped:
-                season_summary = {}
-                
-                # Common stats
-                season_summary["season"] = int(season_val)
-                season_summary["season_type"] = season_type_val
-                season_summary["games_played"] = len(group)
-                
-                # Handle position-specific aggregations
-                if position == "QB":
-                    # Sum counting stats
-                    season_summary["passing_yards"] = float(group['passing_yards'].sum())
-                    season_summary["passing_tds"] = int(group['passing_tds'].sum())
-                    season_summary["interceptions"] = int(group['interceptions'].sum())
-                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                    completions = group['completions'].sum()
-                    attempts = group['attempts'].sum()
-                    
-                    # Calculate derived stats
-                    season_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
-                    season_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
-                    
-                    # Add advanced metrics if available
-                    if 'passing_epa' in group.columns:
-                        season_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
-                    
-                elif position == "RB":
-                    # Sum counting stats
-                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                    season_summary["receptions"] = int(group['receptions'].sum())
-                    season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                    season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                    season_summary["targets"] = int(group['targets'].sum())
-                    
-                    # Calculate derived stats
-                    carries = group['carries'].sum()
-                    season_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
-                    season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                    
-                    # Add advanced metrics if available
-                    if 'rushing_epa' in group.columns:
-                        season_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
-                    
-                elif position in ["WR", "TE"]:
-                    # Sum counting stats
-                    season_summary["targets"] = int(group['targets'].sum())
-                    season_summary["receptions"] = int(group['receptions'].sum())
-                    season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                    season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                    season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                    season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                    
-                    # Calculate derived stats
-                    targets = group['targets'].sum()
-                    season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                    season_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
-                    season_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
-                    
-                    # Add advanced metrics if available
-                    if 'receiving_air_yards' in group.columns:
-                        season_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
-                    if 'receiving_yards_after_catch' in group.columns:
-                        season_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
-                    if 'wopr' in group.columns:
-                        season_summary["average_wopr"] = float(group['wopr'].mean())
-                    
-                # Add fantasy points for all positions
-                if 'fantasy_points_ppr' in group.columns:
-                    season_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
-                    season_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
-                    
-                stats_data.append(sanitize_record(season_summary))
-                
-        elif aggregate == AggregationType.WEEK:
-            # Return week-by-week stats (no aggregation)
-            for _, record in player_stats.iterrows():
-                stats_data.append(sanitize_record(record.to_dict()))
+            elif aggregate == AggregationType.WEEK:
+                # Return week-by-week stats (no aggregation)
+                for _, record in player_stats.iterrows():
+                    stats_data.append(sanitize_record(record.to_dict()))
         
         # Sort the data appropriately
         if stats_data and aggregate == AggregationType.SEASON:
