@@ -232,7 +232,7 @@ def load_schedules(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     df = pd.read_parquet(cache_path)
     return df[df["season"].isin(seasons)] if seasons else df
 
-def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load injury reports for specified seasons."""
     if seasons is None:
         seasons = [2024]  # Use previous year since current might not be available
@@ -246,7 +246,7 @@ def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
             
             # Download if not in cache or older than 1 hour (injuries update frequently)
             if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 3600):
-                version = get_dataset_version("injuries")
+                version = await get_dataset_version("injuries")
                 url = f"{NFLVERSE_BASE_URL}/{version}/injuries_{season}.parquet"
                 download_parquet(url, cache_path, f"injuries_{season}")
             
@@ -261,7 +261,7 @@ def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     
     return pd.concat(dfs) if dfs else pd.DataFrame()
 
-def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load team depth charts for specified seasons."""
     if seasons is None:
         seasons = [2024]  # Use previous year since current might not be available
@@ -275,7 +275,7 @@ def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
             
             # Download if not in cache or older than 1 day
             if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
-                version = get_dataset_version("depth_charts")
+                version = await get_dataset_version("depth_charts")
                 url = f"{NFLVERSE_BASE_URL}/{version}/depth_charts_{season}.parquet"
                 download_parquet(url, cache_path, f"depth_charts_{season}")
             
@@ -290,7 +290,7 @@ def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     
     return pd.concat(dfs) if dfs else pd.DataFrame()
 
-def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load roster data for specified seasons."""
     if seasons is None:
         seasons = [2024]  # Use current season by default
@@ -304,7 +304,7 @@ def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
             
             # Download if not in cache
             if not cache_path.exists():
-                version = get_dataset_version("rosters")
+                version = await get_dataset_version("rosters")
                 url = f"{NFLVERSE_BASE_URL}/{version}/roster_{season}.parquet"
                 download_parquet(url, cache_path)
             

@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import logging
 from pathlib import Path
-from src.nfl_data.data_loader import (
+from nfl_data.data_loader import (
     load_players, load_weekly_stats, load_rosters,
     load_depth_charts, load_injuries, load_pbp_data
 )
@@ -34,19 +34,16 @@ async def main():
 
     # Rosters
     logger.info("Loading rosters...")
-    from src.nfl_data.data_loader import load_rosters
     rosters_df = await load_rosters(seasons=SEASONS)
     atomic_save(rosters_df, CACHE_DIR / "rosters_condensed.parquet")
 
     # Depth charts
     logger.info("Loading depth charts...")
-    from src.nfl_data.data_loader import load_depth_charts
     depth_charts_df = await load_depth_charts(seasons=SEASONS)
     atomic_save(depth_charts_df, CACHE_DIR / "depth_charts_condensed.parquet")
 
     # Injuries
     logger.info("Loading injuries...")
-    from src.nfl_data.data_loader import load_injuries
     injuries_df = await load_injuries(seasons=SEASONS)
     atomic_save(injuries_df, CACHE_DIR / "injuries_condensed.parquet")
 
