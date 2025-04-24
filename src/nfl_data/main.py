@@ -159,11 +159,17 @@ async def get_player_information(
         player, alternatives = resolve_player(name, season)
         
         if not player and alternatives:
+            # Enhanced response for LLMs with more context
             return JSONResponse(
                 status_code=300,
                 content={
                     "error": f"Multiple players found matching '{name}'",
-                    "matches": alternatives
+                    "suggestion": "Please specify which player you mean by providing additional context like team, position, or active/retired status",
+                    "matches": [{
+                        **alt,
+                        "active_status": "Active" if alt.get("team_abbr") else "Inactive/Retired",
+                        "full_context": f"{alt.get('display_name')} ({alt.get('position')}, {alt.get('team_abbr') or 'Retired'}, {alt.get('years_of_experience', 0)} years exp.)"
+                    } for alt in alternatives]
                 }
             )
             
@@ -520,3 +526,22 @@ async def clear_cache(
     if keys:
         await redis_client.delete(*keys)
     return {"message": f"Cleared {len(keys)} cache entries"}
+
+@app.get("/api/cache/status")
+async def get_cache_status():
+    """Get current cache status."""
+    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    
+    # Get all cache keys
+    keys = await redis_client.keys("nfl-api-cache:*")
+    
+    # Get cache stats
+    stats = {
+        "total_keys": len(keys),
+        "keys": [key.decode('utf-8') for key in keys[:10]],  # Show first 10 keys
+        "cache_enabled": FastAPICache.get_enable_status(),
+        "backend_type": "Redis",
+        "prefix": "nfl-api-cache"
+    }
+    
+    return stats

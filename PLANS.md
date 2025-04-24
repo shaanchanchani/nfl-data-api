@@ -29,6 +29,36 @@ mkdir -p /data/cache/{parquet,sqlite,memory_dump,logs}
 tree /data/cache
 ```
 
+## Phase 1.5: Analytics-Ready Database Requirements
+
+### Database Structure
+1. play_by_play_condensed (Source: play_by_play)
+Purpose: Core table for detailed play analysis, situational filtering, player involvement, and advanced metrics.
+Grain: One row per play.
+Primary Keys (Conceptual): game_id, play_id
+Key Columns to Keep:
+Identifiers: play_id, game_id, old_game_id (if needed for joins), season, week, posteam, defteam, side_of_field.
+Player Involvement (Standardized to gsis_id):
+passer_player_id, rusher_player_id, receiver_player_id
+interception_player_id
+sack_player_id (primary - combine sack_player_id and half_sack_1/2_player_id logic during ETL)
+pass_defense_1_player_id, pass_defense_2_player_id (for matchup analysis)
+fumble_forced_player_id (combine forced_fumble_player_1_player_id etc.)
+fumble_recovery_player_id (combine fumble_recovery_1_player_id etc.)
+solo_tackle_player_id (combine solo_tackle_1_player_id etc.)
+assist_tackle_player_id (combine assist_tackle_1_player_id etc.)
+tackle_for_loss_player_id (combine tackle_for_loss_1_player_id etc.)
+qb_hit_player_id (combine qb_hit_1_player_id etc.)
+kicker_player_id, punter_player_id
+kickoff_returner_player_id, punt_returner_player_id
+td_player_id
+Situational Context: down, ydstogo, yardline_100, qtr, game_half, game_seconds_remaining, quarter_seconds_remaining, half_seconds_remaining, time (game clock), score_differential, posteam_score, defteam_score, posteam_timeouts_remaining, defteam_timeouts_remaining, goal_to_go, shotgun, no_huddle, posteam_type (Home/Away).
+Play Description: play_type (Pass/Rush/Punt/etc.), pass_length, pass_location, run_gap, run_location.
+Play Outcome: yards_gained, complete_pass, incomplete_pass, interception, sack, fumble_lost, touchdown, pass_touchdown, rush_touchdown, return_touchdown, safety, field_goal_result, extra_point_result, two_point_conv_result, first_down, first_down_pass, first_down_rush, first_down_penalty, penalty, penalty_yards, penalty_type, penalty_team, sp (scoring play flag), special_teams_play.
+Play Classification Flags: pass_attempt, rush_attempt, qb_dropback, qb_scramble, qb_spike, qb_kneel, punt_attempt, kickoff_attempt, field_goal_attempt, extra_point_attempt, two_point_attempt.
+Advanced Metrics: epa, wpa, air_epa, yac_epa, comp_air_epa, comp_yac_epa, air_yards, yards_after_catch, cp, cpoe, pass_oe, qb_epa, xyac_epa, xyac_mean_yardage, xyac_success, series_success, success.
+Drive Context: drive, fixed_drive_result.
+
 ## Phase 2: Data Caching Implementation
 
 ### 2.1 Parquet File Caching

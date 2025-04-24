@@ -11,6 +11,8 @@ from functools import lru_cache
 import time
 from requests.exceptions import RequestException
 import logging
+import redis.asyncio as redis
+import json
 
 from .config import (
     CACHE_DIR,
@@ -24,21 +26,44 @@ from .config import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Setup requests caching for GitHub API
-requests_cache.install_cache(
-    str(CACHE_DIR / 'github_cache'),
-    backend='sqlite',
-    expire_after=timedelta(hours=1)
-)
+# Setup Redis for GitHub API caching
+redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+GITHUB_CACHE_PREFIX = "github-api:"
+GITHUB_CACHE_EXPIRE = 3600  # 1 hour in seconds
 
-def get_latest_release_info() -> Dict:
+async def get_from_cache(key: str) -> Optional[Dict]:
+    """Get cached GitHub API response."""
+    cached = await redis_client.get(f"{GITHUB_CACHE_PREFIX}{key}")
+    return json.loads(cached) if cached else None
+
+async def set_in_cache(key: str, value: Dict) -> None:
+    """Cache GitHub API response."""
+    await redis_client.set(
+        f"{GITHUB_CACHE_PREFIX}{key}",
+        json.dumps(value),
+        ex=GITHUB_CACHE_EXPIRE
+    )
+
+async def get_latest_release_info() -> Dict:
     """Get the latest release information from nflverse."""
+    cache_key = "latest_release"
+    
+    # Check cache first
+    cached = await get_from_cache(cache_key)
+    if cached:
+        return cached
+    
+    # If not in cache, fetch from GitHub
     for attempt in range(MAX_RETRIES):
         try:
             url = "https://api.github.com/repos/nflverse/nflverse-data/releases/latest"
             response = requests.get(url)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            
+            # Cache the response
+            await set_in_cache(cache_key, data)
+            return data
         except RequestException as e:
             if attempt == MAX_RETRIES - 1:
                 logger.error(f"Failed to get latest release info: {str(e)}")
@@ -46,14 +71,14 @@ def get_latest_release_info() -> Dict:
             time.sleep(RETRY_DELAY)
     raise RuntimeError(f"Failed to get latest release info after {MAX_RETRIES} attempts")
 
-def get_dataset_version(dataset: str) -> str:
+async def get_dataset_version(dataset: str) -> str:
     """Get the appropriate version tag for a dataset."""
     if dataset in DATASET_VERSIONS:
         return DATASET_VERSIONS[dataset]
     
     # Fallback to latest release
     try:
-        release_info = get_latest_release_info()
+        release_info = await get_latest_release_info()
         return release_info["tag_name"]
     except Exception as e:
         logger.error(f"Failed to get version for {dataset}: {str(e)}")
@@ -113,7 +138,7 @@ def safe_read_parquet(path: Path, dataset_name: str = "") -> pd.DataFrame:
         path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to read {dataset_name} from {path}: {str(e)}")
 
-def load_pbp_data(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_pbp_data(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load play-by-play data for specified seasons."""
     if seasons is None:
         seasons = [2024]
@@ -127,7 +152,7 @@ def load_pbp_data(seasons: Optional[List[int]] = None) -> pd.DataFrame:
             
             # Download if not in cache
             if not cache_path.exists():
-                version = get_dataset_version("play_by_play")
+                version = await get_dataset_version("play_by_play")
                 url = f"{NFLVERSE_BASE_URL}/{version}/play_by_play_{season}.parquet"
                 download_parquet(url, cache_path)
             
@@ -142,10 +167,10 @@ def load_pbp_data(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     
     return pd.concat(dfs) if dfs else pd.DataFrame()
 
-def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load weekly player stats for specified seasons."""
     if seasons is None:
-        seasons = [2024]  # Use previous year since current might not be available
+        seasons = [2024]
     
     dfs = []
     errors = []
@@ -156,7 +181,7 @@ def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
             
             # Download if not in cache
             if not cache_path.exists():
-                version = get_dataset_version("player_stats")
+                version = await get_dataset_version("player_stats")
                 url = f"{NFLVERSE_BASE_URL}/{version}/player_stats_{season}.parquet"
                 download_parquet(url, cache_path, f"player_stats_{season}")
             
@@ -171,14 +196,14 @@ def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     
     return pd.concat(dfs) if dfs else pd.DataFrame()
 
-def load_players() -> pd.DataFrame:
+async def load_players() -> pd.DataFrame:
     """Load player information."""
     cache_path = CACHE_DIR / "players.parquet"
     
     try:
         # Download if not in cache or older than 1 day
         if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
-            version = get_dataset_version("players")
+            version = await get_dataset_version("players")
             url = f"{NFLVERSE_BASE_URL}/{version}/players.parquet"
             download_parquet(url, cache_path, "players")
             logger.info(f"Downloaded players data to {cache_path}")

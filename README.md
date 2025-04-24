@@ -1,124 +1,95 @@
 # NFL Data API
 
-A FastAPI-based API for accessing and analyzing NFL data.
+## Overview
+A FastAPI-based API for accessing and analyzing NFL data, with multi-layer caching and robust endpoint coverage.
 
-## Features
+---
 
-- Player statistics and analysis
-- Team statistics
-- Game analysis
-- Historical matchup data
-- Situation-based statistics
-- And more...
+## Caching Architecture
 
-## Local Development
+**1. API Response Cache (Redis via fastapi-cache2)**
+- Caches endpoint responses (e.g., /api/player/{name}, /api/players/top/{position})
+- 12-hour expiration for most endpoints
+- Prefix: `nfl-api-cache:`
 
-1. Clone the repository
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-3. Run the development server:
-```bash
-uvicorn src.nfl_data.main:app --reload
-```
+**2. GitHub API Cache (Redis)**
+- Caches GitHub API responses for nflverse data versioning
+- 1-hour expiration
+- Prefix: `github-api:`
 
-## Deployment on Railway
+**3. Parquet File Cache (Filesystem)**
+- Caches downloaded data files (play-by-play, rosters, etc.)
+- Located in `CACHE_DIR` (e.g., `/data/cache` on Railway)
+- Expiration varies by data type
 
-### Option 1: Using Railway CLI (Recommended)
+---
 
-1. Install Railway CLI:
-```bash
-# macOS
-brew install railway
+## Key Endpoints
 
-# Windows (requires npm)
-npm i -g @railway/cli
+### Implemented
+- `/` : Welcome message, docs URL
+- `/health` : Health check
+- `/api` : API info and available endpoints
+- `/api/seasons` : List available seasons
+- `/api/players/top/{position}` : Top players by position (cached)
+- `/api/player/{name}` : Player info, stats, roster, injuries (cached, LLM-friendly ambiguity handling)
+- `/api/player/{name}/headshot` : Player headshot URL (cached)
+- `/api/player/{name}/career` : Player career stats (cached)
+- `/api/player/{name}/gamelog` : Player game-by-game stats
+- `/api/player/{name}/situation/{situation_type}` : Player stats for specific situations
+- `/api/compare` : Compare multiple players
+- `/api/player/on-off-impact` : Analyze player performance with/without another player
+- `/api/player/qb-stats` : Advanced QB stats
+- `/api/player/schedule-analysis` : Analyze upcoming schedule for a player
+- `/api/player/{name}/on-field` : Player performance with another player on/off field
+- `/api/team/{team}` : Team stats
+- `/api/game` : Game details
+- `/api/game/outlook` : Game outlook/analysis
+- `/api/cache/clear` : Clear cache entries (admin)
+- `/api/cache/status` : Cache status/monitoring
 
-# Other platforms
-curl -fsSL https://railway.app/install.sh | sh
-```
+### Stubs / Planned (see PLANS.md)
+- `/api/cache/stats` : Cache statistics (hit/miss, size, health)
+- `/api/cache/cleanup` : Selective cache cleanup by type/age
+- Batch cache operations, cache prewarming, and more (see PLANS.md)
 
-2. Login to Railway:
-```bash
-railway login
-```
+---
 
-3. Link your project:
-```bash
-# If you're creating a new project
-railway init
+## Test Coverage
 
-# If you're connecting to an existing project
-railway link
-```
+### Implemented
+- **Unit tests** for:
+  - Player stats (QB, RB, WR, TE)
+  - Team stats
+  - Defensive stats
+  - Player/game resolution
+  - Situation filters
+  - Error handling (invalid names, params, etc.)
+- **API endpoint tests** for:
+  - All major endpoints (see above)
+  - Parameterized tests for filters, situations, and edge cases
+- **Integration tests** for:
+  - Stats calculation (cross-checking play-by-play and weekly data)
+  - Multi-season and partial-season logic
+  - Defensive and situational stats
 
-4. Deploy your application:
-```bash
-railway up
-```
+### Stubs / Yet to Implement
+- Cache integration tests (planned)
+- Cache persistence/restart tests (planned)
+- Load/performance tests (planned)
+- Monitoring/alerting tests (planned)
+- Any new endpoints from PLANS.md
 
-5. Monitor your deployment:
-```bash
-railway logs
-```
+---
 
-### Option 2: Using Railway Dashboard
+## Quickstart
+1. Install dependencies: `pip install -r requirements.txt`
+2. Set up Redis and configure `REDIS_URL`
+3. Run the API: `uvicorn src.nfl_data.main:app --reload`
+4. Visit `/docs` for interactive API documentation
 
-1. Create a new project on [Railway](https://railway.app)
-2. Connect your GitHub repository
-3. Railway will automatically detect the Python project and build it
-4. The application will be deployed automatically
+---
 
-## Environment Variables
-
-The following environment variables can be configured:
-
-- `PORT`: The port number for the server (set automatically by Railway)
-- Add any additional environment variables needed for your specific setup
-
-To set environment variables using Railway CLI:
-```bash
-railway vars set KEY=VALUE
-```
-
-To view current environment variables:
-```bash
-railway vars
-```
-
-## Railway CLI Common Commands
-
-```bash
-# Start a development environment
-railway run
-
-# View project status
-railway status
-
-# Open project dashboard
-railway open
-
-# View deployment logs
-railway logs
-
-# List all services
-railway service list
-
-# Generate production build
-railway build
-
-# Deploy to production
-railway up
-```
-
-## API Documentation
-
-Once deployed, you can access the API documentation at:
-
-- Swagger UI: `/docs`
-- ReDoc: `/redoc`
-
-## License
-
-MIT
+## More
+- See `PLANS.md` for roadmap, cache details, and future work.
+- For questions or contributions, open an issue or PR.
