@@ -11,4 +11,7 @@ restartPolicyMaxRetries = 3
 
 [deploy.metadata]
 cpu = "250m"
-memory = "512Mi" 
+memory = "1Gi"
+
+[deploy.variables]
+REDIS_URL = "${REDIS_URL}" 

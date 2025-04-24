@@ -18,6 +18,8 @@ var/
 wheels/
 *.egg-info/
 .installed.cfg
+go-api/
+
 *.egg
 
 # Virtual Environment

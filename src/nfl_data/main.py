@@ -8,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date
 from dotenv import load_dotenv
 import pandas as pd
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.decorator import cache
+import redis.asyncio as redis
 
 from nfl_data.stats_helpers import (
     get_defensive_stats,
@@ -31,6 +35,12 @@ from nfl_data.stats_helpers import (
     import_weekly_data
 )
 
+from nfl_data.player_cache import get_top_players_by_position
+from nfl_data.data_loader import (
+    load_players, load_weekly_stats, load_rosters,
+    load_depth_charts, load_injuries
+)
+
 # Load environment variables
 load_dotenv()
 
@@ -52,37 +62,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Demo implementations for testing purposes ---
-def get_player_comparison_multi(*args, **kwargs):
-    """Placeholder for multi-player comparison functionality"""
-    return {"status": "success", "message": "This is a test implementation"}
-
-def get_player_on_off_impact(*args, **kwargs):
-    """Placeholder for player on/off impact analysis"""
-    return {"status": "success", "message": "This is a test implementation"}
-
-def get_qb_advanced_stats(*args, **kwargs):
-    """Placeholder for advanced QB stats"""
-    return {"status": "success", "message": "This is a test implementation"}
-
-def get_future_schedule_analysis(*args, **kwargs):
-    """Placeholder for schedule analysis"""
-    return {"status": "success", "message": "This is a test implementation"}
-    
-def get_game_outlook(*args, **kwargs):
-    """Placeholder for game outlook"""
-    return {"status": "success", "message": "This is a test implementation"}
-# ---------------------------------------------
-
-@app.get("/")
-async def root():
-    """Root endpoint redirects to API documentation."""
-    return {"message": "Welcome to the NFL Data API", "docs_url": "/docs"}
+@app.on_event("startup")
+async def startup():
+    """Initialize Redis cache on startup."""
+    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    FastAPICache.init(RedisBackend(redis_client), prefix="nfl-api-cache")
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+def get_headshot_url(gsis_id: str) -> str:
+    """Get NFL CDN URL for player headshot."""
+    return f"https://static.www.nfl.com/image/private/t_player_profile_landscape/f_auto/league/{gsis_id}"
+
+@app.get("/")
+async def root():
+    """Root endpoint redirects to API documentation."""
+    return {
+        "message": "Welcome to the NFL Data API", 
+        "docs_url": "/docs",
+        "warning": "Note: The first request may take 30-60 seconds as data is downloaded and cached. Subsequent requests will be much faster."
+    }
 
 @app.get("/api")
 async def read_root():
@@ -110,130 +112,116 @@ async def get_seasons_endpoint():
     seasons = get_available_seasons()
     return {"seasons": seasons}
 
+@app.get("/api/players/top/{position}")
+@cache(expire=43200)  # 12 hours
+async def get_top_players(
+    position: str = Path(..., description="Player position (QB, RB, WR, TE)"),
+    seasons: List[int] = Query([2023, 2024], description="Seasons to analyze"),
+    limit: int = Query(24, description="Number of players to return", ge=1, le=100)
+):
+    """Get top players for a given position based on fantasy points."""
+    try:
+        # Validate position
+        position = position.upper()
+        if position not in ["QB", "RB", "WR", "TE"]:
+            raise HTTPException(status_code=400, detail="Invalid position. Must be one of: QB, RB, WR, TE")
+            
+        # Get top players
+        top_players = get_top_players_by_position(seasons, limit)
+        
+        if position not in top_players:
+            raise HTTPException(status_code=404, detail=f"No players found for position {position}")
+            
+        # Add headshot URLs to response
+        players = top_players[position][:limit]
+        for player in players:
+            if "gsis_id" in player:
+                player["headshot_url"] = get_headshot_url(player["gsis_id"])
+        
+        return {
+            "position": position,
+            "seasons": seasons,
+            "players": players
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting top players: {str(e)}")
+
 @app.get("/api/player/{name}")
+@cache(expire=43200)  # 12 hours
 async def get_player_information(
     name: str = Path(..., description="Player name (format: 'First Last')"),
-    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)", ge=1920, le=2024),
-    week: Optional[int] = Query(None, description="Filter by week number", ge=1, le=22),
-    quarter: Optional[int] = Query(None, description="Filter by quarter (1-5, where 5 is OT)", ge=1, le=5),
-    half: Optional[int] = Query(None, description="Filter by half (1 or 2)", ge=1, le=2),
-    down: Optional[int] = Query(None, description="Filter by down (1-4)", ge=1, le=4),
-    is_red_zone: Optional[bool] = Query(None, description="Filter for red zone plays only"),
-    is_third_down: Optional[bool] = Query(None, description="Filter for third downs only"),
-    is_fourth_down: Optional[bool] = Query(None, description="Filter for fourth downs only"),
-    is_goal_to_go: Optional[bool] = Query(None, description="Filter for goal-to-go situations"),
-    is_trailing: Optional[bool] = Query(None, description="Filter for when player's team is trailing"),
-    is_leading: Optional[bool] = Query(None, description="Filter for when player's team is leading"),
-    is_tied: Optional[bool] = Query(None, description="Filter for when the score is tied"),
-    is_home_team: Optional[bool] = Query(None, description="Filter for home games"),
-    is_away_team: Optional[bool] = Query(None, description="Filter for away games"),
-    is_fourth_quarter_clutch: Optional[bool] = Query(None, description="Filter for 4th quarter with score differential <= 8")
+    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent available)", ge=1920, le=2024)
 ):
-    """Get comprehensive player stats with optional situation filters."""
+    """Get comprehensive player information including stats, roster info, and injury history."""
     try:
-        # Validate name format
-        name_parts = name.strip().split()
-        if len(name_parts) < 2:
-            raise HTTPException(status_code=400, detail="Player name must include both first and last name")
-            
-        # Validate parameters
-        if season and (season < 1920 or season > 2024):
-            raise HTTPException(status_code=500, detail="Invalid season year")
-        if week and (week < 1 or week > 22):
-            raise HTTPException(status_code=500, detail="Invalid week number")
-        if quarter and (quarter < 1 or quarter > 5):
-            raise HTTPException(status_code=500, detail="Invalid quarter")
-        if half and (half < 1 or half > 2):
-            raise HTTPException(status_code=500, detail="Invalid half")
-        if down and (down < 1 or down > 4):
-            raise HTTPException(status_code=500, detail="Invalid down")
-            
-        # Build situation filters from query params
-        situation_filters = {}
-        
-        if down is not None:
-            situation_filters["down"] = down
-        
-        if quarter is not None:
-            situation_filters["quarter"] = quarter
-        
-        if half is not None:
-            situation_filters["half"] = half
-        
-        if is_red_zone is not None:
-            situation_filters["red_zone"] = is_red_zone
-        
-        if is_third_down is not None and is_third_down:
-            situation_filters["down"] = 3
-        
-        if is_fourth_down is not None and is_fourth_down:
-            situation_filters["down"] = 4
-        
-        if is_goal_to_go is not None:
-            situation_filters["goal_to_go"] = is_goal_to_go
-        
-        if is_trailing is not None:
-            situation_filters["is_trailing"] = is_trailing
-        
-        if is_leading is not None:
-            situation_filters["is_leading"] = is_leading
-        
-        if is_tied is not None:
-            situation_filters["is_tied"] = is_tied
-        
-        if is_home_team is not None:
-            situation_filters["is_home_team"] = is_home_team
-        
-        if is_away_team is not None:
-            situation_filters["is_away_team"] = is_away_team
-        
-        if is_fourth_quarter_clutch is not None:
-            situation_filters["is_fourth_quarter_clutch"] = is_fourth_quarter_clutch
-        
-        # First resolve the player to get their position and ID
+        # Resolve player first
         player, alternatives = resolve_player(name, season)
         
+        if not player and alternatives:
+            return JSONResponse(
+                status_code=300,
+                content={
+                    "error": f"Multiple players found matching '{name}'",
+                    "matches": alternatives
+                }
+            )
+            
         if not player:
             raise HTTPException(status_code=404, detail=f"No player found matching '{name}'")
-        
-        # Get position-specific stats using the appropriate function
-        position = player["position"]
-        
-        # Only handle offensive players
-        if position not in ["QB", "RB", "WR", "TE"]:
-            raise HTTPException(status_code=400, detail=f"Stats not available for {position} position")
             
+        # Get player ID and add headshot URL
         player_id = player["gsis_id"]
+        player["headshot_url"] = get_headshot_url(player_id)
         
-        # Load play-by-play and weekly data
-        try:
-            pbp_data = import_pbp_data([season] if season else None)
-            weekly_data = import_weekly_data([season] if season else None)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error loading data: {str(e)}")
+        # Load all relevant data
+        seasons = [season] if season else list(range(2020, 2025))
+        weekly_stats = load_weekly_stats(seasons)
+        rosters = load_rosters(seasons)
+        depth_charts = load_depth_charts(seasons)
+        injuries = load_injuries(seasons)
         
-        # Filter plays for this player based on position
-        if position == "QB":
-            plays = pbp_data[pbp_data['passer_player_id'] == player_id]
-        elif position == "RB":
-            plays = pbp_data[
-                (pbp_data['rusher_player_id'] == player_id) |
-                (pbp_data['receiver_player_id'] == player_id)
-            ]
-        elif position in ["WR", "TE"]:
-            plays = pbp_data[pbp_data['receiver_player_id'] == player_id]
+        # Filter data for this player
+        player_stats = weekly_stats[weekly_stats['player_id'] == player_id]
+        player_rosters = rosters[rosters['player_id'] == player_id]
+        player_depth = depth_charts[depth_charts['player_id'] == player_id]
+        player_injuries = injuries[injuries['player_id'] == player_id]
         
-        # Get position-specific stats
-        stats = get_position_specific_stats_from_pbp(
-            plays,
-            position,
-            weekly_data=weekly_data,
-            player_id=player_id,
-            situation_filters=situation_filters,
-            game_filters={'season_games': [week]} if week else None
-        )
+        # Calculate career stats
+        career_stats = {}
+        if not player_stats.empty:
+            career_stats = {
+                "games_played": len(player_stats),
+                "fantasy_points_per_game": float(player_stats['fantasy_points_ppr'].mean()),
+                "total_fantasy_points": float(player_stats['fantasy_points_ppr'].sum())
+            }
+            
+            # Add position-specific stats
+            if position == "QB":
+                career_stats.update({
+                    "passing_yards": float(player_stats['passing_yards'].sum()),
+                    "passing_tds": int(player_stats['passing_tds'].sum()),
+                    "interceptions": int(player_stats['interceptions'].sum()),
+                    "completion_percentage": float((player_stats['completions'].sum() / player_stats['attempts'].sum() * 100) if player_stats['attempts'].sum() > 0 else 0),
+                    "rushing_yards": float(player_stats['rushing_yards'].sum()),
+                    "rushing_tds": int(player_stats['rushing_tds'].sum())
+                })
+            elif position in ["RB", "WR", "TE"]:
+                career_stats.update({
+                    "rushing_yards": float(player_stats['rushing_yards'].sum()),
+                    "rushing_tds": int(player_stats['rushing_tds'].sum()),
+                    "receptions": int(player_stats['receptions'].sum()),
+                    "receiving_yards": float(player_stats['receiving_yards'].sum()),
+                    "receiving_tds": int(player_stats['receiving_tds'].sum()),
+                    "targets": int(player_stats['targets'].sum())
+                })
         
-        # Add player info to response
+        # Convert DataFrame records to JSON-serializable format
+        def convert_to_json_safe(record):
+            return {k: float(v) if isinstance(v, pd.np.floating) else int(v) if isinstance(v, pd.np.integer) else v 
+                   for k, v in record.items()}
+        
+        # Build response
         response = {
             "player_info": {
                 "player_id": player_id,
@@ -242,19 +230,25 @@ async def get_player_information(
                 "team": player.get("team_abbr", ""),
                 "age": calculate_age(player["birth_date"]) if "birth_date" in player else None,
                 "experience": player.get("years_of_experience", None),
-                "headshot_url": weekly_data[weekly_data['player_id'] == player_id]['headshot_url'].iloc[0] if not weekly_data[weekly_data['player_id'] == player_id].empty else None
+                "college": player.get("college", None),
+                "height": player.get("height", None),
+                "weight": player.get("weight", None),
+                "headshot_url": player["headshot_url"]
             },
-            "stats": stats
+            "career_stats": career_stats,
+            "season_stats": [convert_to_json_safe(record) for record in player_stats.to_dict('records')] if not player_stats.empty else [],
+            "roster_history": [convert_to_json_safe(record) for record in player_rosters.to_dict('records')] if not player_rosters.empty else [],
+            "depth_chart_history": [convert_to_json_safe(record) for record in player_depth.to_dict('records')] if not player_depth.empty else [],
+            "injury_history": [convert_to_json_safe(record) for record in player_injuries.to_dict('records')] if not player_injuries.empty else []
         }
         
         return response
-    
-    except HTTPException as he:
-        raise he
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting player stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting player information: {str(e)}")
 
 @app.get("/api/player/{name}/headshot")
+@cache(expire=86400)
 async def get_headshot(
     name: str = Path(..., description="Player name"),
     season: Optional[int] = Query(None, description="NFL season year (defaults to most recent)") 
@@ -276,7 +270,7 @@ async def get_headshot(
                 }
             )
         
-        headshot_url = get_player_headshot_url(player["gsis_id"])
+        headshot_url = get_headshot_url(player["gsis_id"])
         return {
             "player_id": player["gsis_id"],
             "player_name": player["display_name"],
@@ -288,6 +282,7 @@ async def get_headshot(
         raise HTTPException(status_code=500, detail=f"Error getting player headshot: {str(e)}")
 
 @app.get("/api/player/{name}/career")
+@cache(expire=43200)  # 12 hours
 async def get_career_stats(
     name: str = Path(..., description="Player name")
 ):
@@ -513,3 +508,15 @@ async def get_game_analysis(
         return outlook
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting game outlook: {str(e)}")
+
+# Add cache cleanup endpoint for admin use
+@app.post("/api/cache/clear")
+async def clear_cache(
+    pattern: str = Query("*", description="Cache key pattern to clear")
+):
+    """Clear cache entries matching the pattern."""
+    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    keys = await redis_client.keys(f"nfl-api-cache:{pattern}")
+    if keys:
+        await redis_client.delete(*keys)
+    return {"message": f"Cleared {len(keys)} cache entries"}

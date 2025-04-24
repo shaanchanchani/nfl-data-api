@@ -8,37 +8,21 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Dict
 from datetime import datetime, timedelta
 from functools import lru_cache
-import appdirs
 import time
 from requests.exceptions import RequestException
 import logging
 
+from .config import (
+    CACHE_DIR,
+    NFLVERSE_BASE_URL,
+    MAX_RETRIES,
+    RETRY_DELAY,
+    DATASET_VERSIONS
+)
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Constants
-CACHE_DIR = Path(appdirs.user_cache_dir("nfl-data-api"))
-NFLVERSE_BASE_URL = "https://github.com/nflverse/nflverse-data/releases/download"
-MAX_RETRIES = 3
-RETRY_DELAY = 1  # seconds
-
-# Dataset version mappings
-DATASET_VERSIONS = {
-    "play_by_play": "pbp",
-    "player_stats": "player_stats",
-    "players": "players",
-    "rosters": "rosters",
-    "injuries": "injuries",
-    "depth_charts": "depth_charts",
-    "schedules": "schedules",
-    "snap_counts": "snap_counts",
-    "nextgen_stats": "nextgen_stats",
-    "pfr_advstats": "pfr_advstats"
-}
-
-# Ensure cache directory exists
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Setup requests caching for GitHub API
 requests_cache.install_cache(
@@ -191,13 +175,21 @@ def load_players() -> pd.DataFrame:
     """Load player information."""
     cache_path = CACHE_DIR / "players.parquet"
     
-    # Download if not in cache or older than 1 day
-    if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
-        version = get_dataset_version("players")
-        url = f"{NFLVERSE_BASE_URL}/{version}/players.parquet"
-        download_parquet(url, cache_path)
-    
-    return pd.read_parquet(cache_path)
+    try:
+        # Download if not in cache or older than 1 day
+        if not cache_path.exists() or (datetime.now().timestamp() - cache_path.stat().st_mtime > 86400):
+            version = get_dataset_version("players")
+            url = f"{NFLVERSE_BASE_URL}/{version}/players.parquet"
+            download_parquet(url, cache_path, "players")
+            logger.info(f"Downloaded players data to {cache_path}")
+        
+        df = safe_read_parquet(cache_path, "players")
+        if df.empty:
+            raise ValueError("Empty DataFrame loaded from players.parquet")
+        return df
+    except Exception as e:
+        logger.error(f"Failed to load players data: {str(e)}")
+        raise RuntimeError(f"Failed to load players data: {str(e)}")
 
 def load_schedules(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     """Load game schedules for specified seasons."""

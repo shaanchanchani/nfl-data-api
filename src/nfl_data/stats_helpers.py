@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, date
+import logging
 
 from .data_import import (
     import_pbp_data,
@@ -772,7 +773,14 @@ def get_position_specific_stats_from_pbp(
         
     elif position in ['WR', 'TE']:
         # Calculate receiving stats from filtered plays
-        receiving_plays = filtered_plays[filtered_plays['receiver_player_id'].notna()]
+        receiving_plays = filtered_plays[
+            (filtered_plays['pass_attempt'] == 1) &  # Only include actual pass plays
+            ((filtered_plays['receiver_player_id'] == player_id) |  # Match on exact player ID
+             (filtered_plays['receiver_id'] == player_id))  # Match on alternative ID field
+        ]
+        
+        # Log for debugging
+        logger.info(f"Found {len(receiving_plays)} receiving plays for player ID {player_id}")
         
         # Total targets = number of plays where this player was the intended receiver
         total_targets = len(receiving_plays)
@@ -782,7 +790,23 @@ def get_position_specific_stats_from_pbp(
         
         # Total receiving yards and touchdowns
         total_receiving_yards = receiving_plays['receiving_yards'].fillna(0).sum()
-        receiving_tds = receiving_plays['pass_touchdown'].fillna(0).sum()
+        
+        # Count touchdowns - using pass_touchdown field to correctly identify receiving TDs
+        receiving_tds = receiving_plays[
+            (receiving_plays['complete_pass'] == 1) & 
+            (receiving_plays['pass_touchdown'] == 1)
+        ].shape[0]
+        
+        # Log touchdown plays for debugging
+        td_plays = receiving_plays[
+            (receiving_plays['complete_pass'] == 1) & 
+            (receiving_plays['pass_touchdown'] == 1)
+        ]
+        if not td_plays.empty:
+            logger.info(f"Found {len(td_plays)} touchdown plays:")
+            for _, play in td_plays.iterrows():
+                logger.info(f"TD Play - Game: {play['game_id']}, Desc: {play['desc']}")
+        
         first_downs = receiving_plays['first_down_pass'].fillna(0).sum()
         yards_after_catch = receiving_plays['yards_after_catch'].fillna(0).sum()
         incomplete_passes = receiving_plays['incomplete_pass'].fillna(0).sum()
