@@ -893,6 +893,30 @@ def get_position_specific_stats_from_pbp(
         # Log calculated QB stats
         logger.info(f"[get_pos_stats QB] Attempts: {total_attempts}, Completions: {completions}, PassYds: {passing_yards}, PassTDs: {passing_tds}, INTs: {interceptions}, Sacks: {sacks}")
 
+        # --- Calculate QB Rushing Stats ---
+        total_rushes = 0
+        rushing_yards = 0.0
+        rushing_tds = 0
+        fumbles = 0
+        yards_per_carry = 0.0
+
+        # Check if necessary rushing columns exist
+        required_rush_cols = ['rush_attempt', 'rushing_yards', 'rush_touchdown', 'fumble_lost']
+        if all(col in filtered_plays.columns for col in required_rush_cols):
+            rushing_plays = filtered_plays[filtered_plays['rush_attempt'] == 1]
+            total_rushes = len(rushing_plays)
+            if total_rushes > 0:
+                rushing_yards = rushing_plays['rushing_yards'].fillna(0).sum()
+                rushing_tds = rushing_plays['rush_touchdown'].fillna(0).sum()
+                # Use 'fumble_lost' here
+                fumbles = rushing_plays['fumble_lost'].fillna(0).sum()
+                yards_per_carry = (rushing_yards / total_rushes) if total_rushes > 0 else 0.0
+            # Log calculated QB rushing stats
+            logger.info(f"[get_pos_stats QB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, FumLost: {fumbles}")
+        else:
+            logger.warning(f"[get_pos_stats QB] Missing required Rushing columns in filtered_plays. Cannot calculate QB rushing stats. Available: {filtered_plays.columns.tolist()}")
+        # --- End QB Rushing Stats ---
+
         stats.update({
             'total_attempts': int(total_attempts),
             'completions': int(completions),
@@ -904,41 +928,51 @@ def get_position_specific_stats_from_pbp(
             'yards_per_attempt': float(yards_per_attempt),
             'touchdown_percentage': float(touchdown_percentage),
             'interception_percentage': float(interception_percentage),
-            'sack_rate': float(sack_rate)
+            'sack_rate': float(sack_rate),
+            'total_rush_attempts': int(total_rushes),
+            'total_rushing_yards': float(rushing_yards),
+            'rushing_tds': int(rushing_tds),
+            'fumbles': int(fumbles),
+            'yards_per_carry': float(yards_per_carry)
         })
-        
-        # Log calculated QB stats
-        logger.info(f"[get_pos_stats QB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, Fum: {fumbles}")
 
     elif position == 'RB':
         # Calculate RB stats from filtered plays
+        # Ensure required columns exist before attempting calculations
+        required_rb_cols = ['rush_attempt', 'rushing_yards', 'rush_touchdown', 'first_down_rush', 'fumble_lost']
+        if not all(col in filtered_plays.columns for col in required_rb_cols):
+            logger.warning(f"[get_pos_stats] Missing required RB columns in filtered_plays. Available: {filtered_plays.columns.tolist()}")
+            return {} # Return empty if required columns are missing
+
         rushing_plays = filtered_plays[filtered_plays['rush_attempt'] == 1]
         total_rushes = len(rushing_plays)
         rushing_yards = rushing_plays['rushing_yards'].fillna(0).sum()
         rushing_tds = rushing_plays['rush_touchdown'].fillna(0).sum()
         first_downs = rushing_plays['first_down_rush'].fillna(0).sum()
-        fumbles = rushing_plays['fumble'].fillna(0).sum()
-        
+        # Use 'fumble_lost' here
+        fumbles = rushing_plays['fumble_lost'].fillna(0).sum()
+
         # Calculate derived stats
         yards_per_carry = (rushing_yards / total_rushes) if total_rushes > 0 else 0
         rush_touchdown_rate = (rushing_tds / total_rushes * 100) if total_rushes > 0 else 0
         first_down_rate = (first_downs / total_rushes * 100) if total_rushes > 0 else 0
         fumble_rate = (fumbles / total_rushes * 100) if total_rushes > 0 else 0
-        
+
         stats.update({
             'total_rush_attempts': int(total_rushes),
             'total_rushing_yards': float(rushing_yards),
             'rushing_tds': int(rushing_tds),
             'rushing_first_downs': int(first_downs),
+            # Note: This now counts fumbles_lost
             'fumbles': int(fumbles),
             'yards_per_carry': float(yards_per_carry),
             'rush_touchdown_rate': float(rush_touchdown_rate),
             'first_down_rate': float(first_down_rate),
             'fumble_rate': float(fumble_rate)
         })
-        
+
         # Log calculated RB stats
-        logger.info(f"[get_pos_stats RB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, Fum: {fumbles}")
+        logger.info(f"[get_pos_stats RB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, FumLost: {fumbles}")
 
     elif position in ['WR', 'TE']:
         # Calculate receiving stats from filtered plays
