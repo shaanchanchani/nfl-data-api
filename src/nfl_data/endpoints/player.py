@@ -548,6 +548,12 @@ async def get_player_stats_endpoint(
         elif stats_data and aggregate == AggregationType.WEEK:
             stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
             
+        # === Final Sanitization ===
+        # Apply sanitize_record to the final list of dicts before returning
+        # This ensures any NaN/inf values introduced after the initial calculation are handled
+        final_stats_data = [sanitize_record(record) for record in stats_data]
+        # === End Final Sanitization ===
+            
         # Build response
         response = {
             "player_id": player_id,
@@ -564,7 +570,7 @@ async def get_player_stats_endpoint(
                 "situations_requested": situation_list if situations else None,
                 "situations_applied": valid_situations_applied # List of successfully applied situations
             },
-            "stats": stats_data
+            "stats": final_stats_data # Use the finally sanitized data
         }
         
         return response
