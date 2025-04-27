@@ -521,10 +521,21 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
     logger.info(f"Calculating situation stats for {player['display_name']} ({player_id}), situations: {situations}, season: {season}")
 
     try:
-        # Load PBP data (consider filtering by season here if efficient)
-        pbp_data = await load_pbp_data(season)
+        # Load PBP data (now without season argument)
+        pbp_data = await load_pbp_data()
         if pbp_data.empty:
-            return {"error": f"No play-by-play data available for season {season}"}
+             return {"error": f"No play-by-play data could be loaded."}
+
+        # Filter PBP data by season if specified
+        if season:
+             if 'season' in pbp_data.columns:
+                 pbp_data = pbp_data[pbp_data['season'] == season]
+                 if pbp_data.empty:
+                     return {"error": f"No play-by-play data available for season {season}"}
+                 logger.info(f"Filtered PBP data to season {season}, {len(pbp_data)} plays remaining.")
+             else:
+                 logger.warning(f"Could not filter PBP data by season {season}, 'season' column not found.")
+                 # Proceed with unfiltered data, but log a warning
 
         # Filter relevant PBP columns if needed to reduce memory
         # relevant_cols = [...] 
