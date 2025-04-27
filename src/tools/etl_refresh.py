@@ -115,7 +115,8 @@ async def main():
             "kickoff_attempt", "field_goal_attempt", "extra_point_attempt", "two_point_attempt", "epa", "wpa",
             "air_epa", "yac_epa", "comp_air_epa", "comp_yac_epa", "air_yards", "yards_after_catch", "cp",
             "cpoe", "pass_oe", "qb_epa", "xyac_epa", "xyac_mean_yardage", "xyac_success", "series_success",
-            "success", "drive", "fixed_drive_result"
+            "success", "drive", "fixed_drive_result",
+            "receiving_yards",
         ]
         # Only keep columns that exist in the DataFrame
         columns_to_keep = [col for col in columns_to_keep if col in pbp_df.columns]
