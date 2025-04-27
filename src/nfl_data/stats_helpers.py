@@ -521,8 +521,8 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
     logger.info(f"Calculating situation stats for {player['display_name']} ({player_id}), situations: {situations}, season: {season}")
 
     try:
-        # Load PBP data (now without season argument)
-        pbp_data = await load_pbp_data()
+        # Load PBP data (remove await, it's a regular function)
+        pbp_data = load_pbp_data()
         if pbp_data.empty:
              return {"error": f"No play-by-play data could be loaded."}
 
