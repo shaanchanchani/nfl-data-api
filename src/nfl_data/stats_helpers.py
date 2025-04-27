@@ -899,6 +899,9 @@ def get_position_specific_stats_from_pbp(
         
         # Log calculated QB stats
         logger.info(f"[get_pos_stats QB] Attempts: {total_attempts}, Completions: {completions}, PassYds: {passing_yards}, PassTDs: {passing_tds}, INTs: {interceptions}, Sacks: {sacks}")
+        # === Add detailed logging for derived stats ===
+        logger.info(f"[DEBUG QB Derived] Comp%: {completion_percentage}, YPA: {yards_per_attempt}, TD%: {touchdown_percentage}, INT%: {interception_percentage}, SackRate: {sack_rate}")
+        # === End detailed logging ===
 
         # --- Calculate QB Rushing Stats ---
         total_rushes = 0
@@ -920,11 +923,15 @@ def get_position_specific_stats_from_pbp(
                 yards_per_carry = (rushing_yards / total_rushes) if total_rushes > 0 else 0.0
             # Log calculated QB rushing stats
             logger.info(f"[get_pos_stats QB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, FumLost: {fumbles}")
+            # === Add detailed logging for derived rushing stats ===
+            logger.info(f"[DEBUG QB Rushing Derived] YPC: {yards_per_carry}")
+            # === End detailed logging ===
         else:
             logger.warning(f"[get_pos_stats QB] Missing required Rushing columns in filtered_plays. Cannot calculate QB rushing stats. Available: {filtered_plays.columns.tolist()}")
         # --- End QB Rushing Stats ---
 
-        stats.update({
+        # === Log final stats dict before update ===
+        temp_stats_dict = {
             'total_attempts': int(total_attempts),
             'completions': int(completions),
             'passing_yards': float(passing_yards),
@@ -941,7 +948,11 @@ def get_position_specific_stats_from_pbp(
             'rushing_tds': int(rushing_tds),
             'fumbles': int(fumbles),
             'yards_per_carry': float(yards_per_carry)
-        })
+        }
+        logger.info(f"[DEBUG QB Final Dict] Stats before update: {temp_stats_dict}")
+        # === End log final stats dict ===
+
+        stats.update(temp_stats_dict)
 
     elif position == 'RB':
         # Calculate RB stats from filtered plays

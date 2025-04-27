@@ -380,6 +380,7 @@ async def get_player_stats_endpoint(
                         
                         # Aggregation logic remains largely the same, but operates on 'situation_plays'
                         if aggregate == AggregationType.CAREER:
+                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER with situations for {player_id}") # ADDED LOG
                             stats = get_position_specific_stats_from_pbp(
                                 situation_plays, position, player_id=player_id
                             )
@@ -491,6 +492,7 @@ async def get_player_stats_endpoint(
                         if all_player_plays.empty:
                             stats = {}
                         else:
+                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER (no situations) for {player_id}") # ADDED LOG
                             stats = get_position_specific_stats_from_pbp(
                                 all_player_plays, position, player_id=player_id
                             )
