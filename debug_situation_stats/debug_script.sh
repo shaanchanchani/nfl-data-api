@@ -3,6 +3,8 @@
 # --- Debug Script for Situational Stats Endpoint ---
 
 # Base URL for the API
+# Use the appropriate URL (dev or prod)
+# BASE_URL="https://nfl-data-api-production.up.railway.app"
 BASE_URL="https://nfl-data-api-dev.up.railway.app"
 LOG_FILE="debug_output.log"
 
@@ -36,7 +38,7 @@ make_debug_request() {
 
   # Check if curl command was successful (optional, useful for debugging)
   if [ ${PIPESTATUS[0]} -ne 0 ]; then
-      echo "Error fetching ${ENDPOINT_PATH}." >> "$LOG_FILE"
+      echo "Error fetching ${ENDPOINT_PATH}. Status code: $?" >> "$LOG_FILE"
   fi
 
   echo "----------------------------------------" >> "$LOG_FILE"
