@@ -5,6 +5,10 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, date
 import logging
+from pydantic_core import PydanticUndefined # Import the Undefined type
+
+# Set up logging at the module level
+logger = logging.getLogger(__name__)
 
 from .data_import import (
     import_pbp_data,
@@ -634,7 +638,26 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
         # Add play count
         calculated_stats['plays'] = len(situation_filtered_plays)
 
-        # Format response
+        # --- Sanitize the calculated stats --- 
+        sanitized_calculated_stats = {}
+        for key, value in calculated_stats.items():
+            if value is PydanticUndefined:
+                sanitized_calculated_stats[key] = None # Replace Undefined with None
+            elif isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                 sanitized_calculated_stats[key] = None # Replace NaN/inf with None
+            elif pd.isna(value):
+                 sanitized_calculated_stats[key] = None # Replace Pandas NA with None
+            else:
+                 # Convert numpy types just in case
+                 if isinstance(value, np.integer):
+                     sanitized_calculated_stats[key] = int(value)
+                 elif isinstance(value, np.floating):
+                      sanitized_calculated_stats[key] = float(value)
+                 else:
+                     sanitized_calculated_stats[key] = value
+        # --- End Sanitization ---
+
+        # Format response using the sanitized stats
         return {
             "player_id": player_id,
             "player_name": player["display_name"],
@@ -642,7 +665,7 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
             "position": position,
             "situations_applied": valid_situations_applied,
             "season_filter": season,
-            "stats": calculated_stats
+            "stats": sanitized_calculated_stats # Use the sanitized dictionary
         }
 
     except FileNotFoundError as e:
