@@ -447,13 +447,56 @@ async def get_player_stats_endpoint(
                  logger.info("No weekly stats found matching non-situational filters.")
                  stats_data = []
             elif aggregate == AggregationType.CAREER:
-                # Aggregate all stats together from the weekly data
-                # Need to implement aggregation from weekly_stats DataFrame
-                # This requires defining which columns to sum/average from weekly_stats
-                logger.warning("Career aggregation from weekly_stats is not fully implemented.")
-                # Placeholder: return summary of first record or empty
-                career_summary = {} # TODO: Implement weekly stats aggregation
-                stats_data.append(sanitize_record(career_summary))
+                # Calculate career stats directly from PBP data when no situations are given
+                logger.info(f"Calculating non-situational career stats from PBP for player {player_id}")
+                try:
+                    pbp_data = load_pbp_data()
+                    if pbp_data.empty:
+                        logger.error("PBP data could not be loaded or is empty for career aggregation.")
+                        stats_data = [] # Return empty if PBP fails
+                    else:
+                        # Filter PBP for the player (similar to situational logic)
+                        player_id_variations = [player_id]
+                        if 'gsis_it_id' in player and player['gsis_it_id']:
+                            player_id_variations.append(player['gsis_it_id'])
+                        
+                        player_cols = [
+                            'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+                            'lateral_receiver_player_id', 'lateral_rusher_player_id',
+                            'fumbled_1_player_id', 'fumbled_2_player_id', 'sack_player_id',
+                            'pass_defense_1_player_id', 'pass_defense_2_player_id',
+                            'interception_player_id', 'tackle_for_loss_1_player_id',
+                            'tackle_for_loss_2_player_id', 'qb_hit_1_player_id', 'qb_hit_2_player_id'
+                        ]
+                        valid_player_cols = [col for col in player_cols if col in pbp_data.columns]
+                        player_plays_mask = pd.Series(False, index=pbp_data.index)
+                        for pid_var in player_id_variations:
+                            if pid_var:
+                                for col in valid_player_cols:
+                                    player_plays_mask |= (pbp_data[col].fillna('') == pid_var)
+                        
+                        if not player_plays_mask.any():
+                            logger.warning(f"No PBP plays found involving player {player_id} for career aggregation.")
+                            all_player_plays = pd.DataFrame(columns=pbp_data.columns) # Empty DataFrame
+                        else:
+                            all_player_plays = pbp_data[player_plays_mask].copy()
+                            logger.info(f"Found {len(all_player_plays)} total plays for player {player_id} for career aggregation.")
+                            
+                        # Calculate stats using the helper function on all player plays
+                        if all_player_plays.empty:
+                            stats = {}
+                        else:
+                            stats = get_position_specific_stats_from_pbp(
+                                all_player_plays, position, player_id=player_id
+                            )
+                        
+                        # Add total play count    
+                        stats.setdefault("plays", len(all_player_plays)) 
+                        stats_data.append(sanitize_record(stats))
+                        
+                except Exception as e:
+                     logger.exception(f"Error calculating career stats from PBP: {e}")
+                     stats_data = [] # Return empty on error
 
             elif aggregate == AggregationType.SEASON:
                 # Group by season and season_type from weekly data
