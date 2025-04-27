@@ -386,13 +386,32 @@ async def get_player_stats_endpoint(
                             # Group by season and season_type
                             grouped = situation_plays.groupby(['season', 'season_type'])
                             for (season_val, season_type_val), group in grouped:
-                                stats = get_position_specific_stats_from_pbp(
-                                    group, position, player_id=player_id
-                                )
-                                stats["season"] = int(season_val)
-                                stats["season_type"] = season_type_val
-                                stats.setdefault("plays", len(group))
-                                stats_data.append(sanitize_record(stats))
+                                # Select only numeric columns for aggregation, excluding identifiers
+                                numeric_cols = group.select_dtypes(include=np.number).columns.tolist()
+                                # Remove identifiers that shouldn't be summed
+                                cols_to_sum = [
+                                    col for col in numeric_cols 
+                                    if col not in ['season', 'week'] # Add other non-summable numeric IDs if they exist
+                                ]
+                                
+                                # Sum the numeric columns
+                                season_summary = group[cols_to_sum].sum(numeric_only=True).to_dict()
+                                
+                                # Add back the group identifiers
+                                season_summary["season"] = int(season_val)
+                                season_summary["season_type"] = season_type_val
+                                
+                                # Add games played count (number of weeks in the group)
+                                season_summary["games_played"] = group['week'].nunique() if 'week' in group.columns else len(group)
+                                
+                                # Optionally, recompute rate stats if applicable (e.g., completion_percentage)
+                                # Example:
+                                # if 'completions' in season_summary and 'attempts' in season_summary and season_summary['attempts'] > 0:
+                                #     season_summary['completion_percentage'] = (season_summary['completions'] / season_summary['attempts']) * 100
+                                # else:
+                                #     season_summary['completion_percentage'] = 0.0
+                                
+                                stats_data.append(sanitize_record(season_summary))
                         elif aggregate == AggregationType.WEEK:
                             # Group by season, week, and season_type
                             grouped = situation_plays.groupby(['season', 'week', 'season_type'])
@@ -439,11 +458,31 @@ async def get_player_stats_endpoint(
                  grouped = player_stats.groupby(['season', 'season_type'])
                  for (season_val, season_type_val), group in grouped:
                      # Aggregate stats within each season group
-                     # Need to implement aggregation logic for weekly stats columns
-                     logger.warning(f"Season aggregation for {season_val} {season_type_val} from weekly_stats not fully implemented.")
-                     season_summary = {"season": int(season_val), "season_type": season_type_val} # TODO: Implement
-                     # Example sum:
-                     # season_summary["passing_yards"] = group["passing_yards"].sum() 
+                     # Select only numeric columns for aggregation, excluding identifiers
+                     numeric_cols = group.select_dtypes(include=np.number).columns.tolist()
+                     # Remove identifiers that shouldn't be summed
+                     cols_to_sum = [
+                         col for col in numeric_cols 
+                         if col not in ['season', 'week'] # Add other non-summable numeric IDs if they exist
+                     ]
+                     
+                     # Sum the numeric columns
+                     season_summary = group[cols_to_sum].sum(numeric_only=True).to_dict()
+                     
+                     # Add back the group identifiers
+                     season_summary["season"] = int(season_val)
+                     season_summary["season_type"] = season_type_val
+                     
+                     # Add games played count (number of weeks in the group)
+                     season_summary["games_played"] = group['week'].nunique() if 'week' in group.columns else len(group)
+                     
+                     # Optionally, recompute rate stats if applicable (e.g., completion_percentage)
+                     # Example:
+                     # if 'completions' in season_summary and 'attempts' in season_summary and season_summary['attempts'] > 0:
+                     #     season_summary['completion_percentage'] = (season_summary['completions'] / season_summary['attempts']) * 100
+                     # else:
+                     #     season_summary['completion_percentage'] = 0.0
+                     
                      stats_data.append(sanitize_record(season_summary))
                      
             elif aggregate == AggregationType.WEEK:
