@@ -1031,8 +1031,9 @@ def get_position_specific_stats_from_pbp(
         ]
         if not td_plays.empty:
             logger.info(f"Found {len(td_plays)} touchdown plays:")
-            for _, play in td_plays.iterrows():
-                logger.info(f"TD Play - Game: {play['game_id']}, Desc: {play['desc']}")
+            # Commenting out the line causing KeyError: 'desc'
+            # for _, play in td_plays.iterrows():
+            #     logger.info(f"TD Play - Game: {play['game_id']}, Desc: {play['desc']}")
         
         first_downs = receiving_plays['first_down_pass'].fillna(0).sum()
         yards_after_catch = receiving_plays['yards_after_catch'].fillna(0).sum()
