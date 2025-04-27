@@ -583,23 +583,46 @@ async def get_player_history(
             # Load injury data
             injuries = await load_injuries(seasons)
             player_injuries = injuries[injuries['gsis_id'] == player_id] if 'gsis_id' in injuries.columns else pd.DataFrame()
-            
+
             # Apply filters
             if season:
                 player_injuries = player_injuries[player_injuries['season'] == season]
             if week:
                 player_injuries = player_injuries[player_injuries['week'] == week]
-                
+
             # Include only relevant fields (normalize data)
             if not player_injuries.empty:
-                selected_columns = ['season', 'week', 'team', 'injury_type', 'practice_status', 'game_status']
-                # Filter to include only columns that exist in the dataframe
-                existing_columns = [col for col in selected_columns if col in player_injuries.columns]
-                filtered_injuries = player_injuries[existing_columns]
+                # Define the source columns we actually need from the Parquet file
+                source_columns = ['season', 'week', 'team', 'report_primary_injury', 
+                                  'practice_primary_injury', 'practice_status', 'report_status']
                 
+                # Filter to include only columns that exist in the dataframe
+                existing_source_columns = [col for col in source_columns if col in player_injuries.columns]
+                filtered_injuries = player_injuries[existing_source_columns]
+
                 for record in filtered_injuries.to_dict('records'):
+                    # Start with a sanitized version of the record
                     sanitized_record = sanitize_record(record)
-                    history_data.append(sanitized_record)
+                    
+                    # Determine injury description
+                    injury_desc = sanitized_record.get('report_primary_injury')
+                    if not injury_desc or pd.isna(injury_desc):
+                        injury_desc = sanitized_record.get('practice_primary_injury')
+
+                    # Create the final record structure for the API response
+                    final_record = {
+                        'season': sanitized_record.get('season'),
+                        'week': sanitized_record.get('week'),
+                        'team': sanitized_record.get('team'),
+                        'injury_description': injury_desc, # Use the derived injury description
+                        'practice_status': sanitized_record.get('practice_status'),
+                        'game_status': sanitized_record.get('report_status') # Map report_status to game_status
+                    }
+                    
+                    # Ensure None values for missing fields rather than NaN or missing keys
+                    final_record = {k: (None if pd.isna(v) else v) for k, v in final_record.items()}
+                    
+                    history_data.append(final_record)
         
         # Sort the data by appropriate fields
         if history_data:

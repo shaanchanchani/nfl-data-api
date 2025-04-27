@@ -439,7 +439,7 @@ def get_player_headshot_url(player_id: str) -> str:
 async def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
     """Get game-by-game stats for a player."""
     # Resolve player first
-    player, alternatives = resolve_player(player_name)
+    player, alternatives = await resolve_player(player_name)
     if not player and alternatives:
         return {
             "error": f"Multiple players found matching '{player_name}'",
@@ -451,12 +451,19 @@ async def get_player_game_log(player_name: str, season: Optional[int] = None) ->
         }
     
     if not season:
-        season = 2024  # Use 2024 data
+        season = get_current_season() # Use helper to get latest completed/active season
     
     # Get weekly data - use await since this is an async function
     weekly_data = await import_weekly_data([season])
-    player_games = weekly_data[weekly_data['player_name'].str.lower() == player["display_name"].lower()]
     
+    # Filter using player_id (gsis_id) for reliability instead of player_name
+    if 'player_id' in weekly_data.columns:
+        player_games = weekly_data[weekly_data['player_id'] == player["gsis_id"]]
+    else:
+        # Fallback or error if player_id column is missing (should not happen with standard data)
+        logger.warning(f"'player_id' column not found in weekly_data for season {season}. Cannot filter games accurately.")
+        player_games = pd.DataFrame() # Return empty DataFrame
+
     # Return formatted response
     return {
         "player_id": player["gsis_id"],

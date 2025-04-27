@@ -72,35 +72,38 @@ nfl-data-api/
 ## Endpoints
 
 ### Player Endpoints
-- **`/api/player/{name}`**: Basic player info and career stats
-- **`/api/player/{name}/info`**: Detailed player information
-- **`/api/player/{name}/stats`**: Comprehensive player statistics with filtering
-- **`/api/player/{name}/history`**: Player roster, depth chart, and injury history
-- **`/api/player/{name}/headshot`**: Player headshot URL
-- **`/api/player/{name}/career`**: Career statistics
-- **`/api/player/{name}/gamelog`**: Game-by-game statistics
-- **`/api/player/{name}/situation?situations=...`**: Situation-specific stats (accepts comma-separated list like `?situations=red_zone,third_down`)
-- **`/api/player/qb-stats`**: Advanced QB statistics
-- **`/api/player/schedule-analysis`**: Upcoming schedule analysis
-- **`/api/player/on-off-impact`**: Player performance with/without another player
+- **`/api/player/{name}`**: Basic player info (ID, position, team, age, experience) and summarized career stats.
+- **`/api/player/{name}/info`**: Detailed player information. Returns a dictionary with keys: `player_id`, `name`, `position`, `team`, `age`, `experience`, `college`, `height`, `weight`, `headshot_url`.
+- **`/api/player/{name}/stats`**: Comprehensive player statistics. Returns player/team info, aggregation level, filters applied, and a `stats` list. The content of the `stats` list dictionaries depends on aggregation/filters:
+    - If `aggregate=week` (and no situations): Each dictionary contains all weekly stats columns for a game (e.g., `week`, `opponent_team`, `passing_yards`, `rushing_attempts`, `receiving_tds`, `fantasy_points_ppr`).
+    - If situations requested: Stats calculated from PBP data, keys vary by position (e.g., `total_attempts`, `completions`, `passing_yards`, `total_rush_attempts`, `total_targets`, `plays`).
+    - *Note: Season/Career aggregation from weekly data is not fully implemented.*
+- **`/api/player/{name}/history`**: Player history data. Specify `?type=roster`, `?type=depth`, or `?type=injury`. Returns a list of records for the specified type (e.g., seasonal roster info, weekly depth chart position, weekly injury status with description).
+- **`/api/player/{name}/headshot`**: Player information (ID, name, team, position) and the URL for their headshot image.
+- **`/api/player/{name}/career`**: Aggregated career statistics for the player across all available seasons.
+- **`/api/player/{name}/gamelog`**: Game-by-game statistics for a specific season. Returns player info (`player_id`, `player_name`, `team`, `position`, `season`) and a `games` list. Each dictionary in `games` contains all columns from the weekly stats data for that game (e.g., `week`, `opponent_team`, `completions`, `attempts`, `passing_yards`, `rushing_yards`, `receptions`, `targets`, `fantasy_points_ppr`).
+- **`/api/player/{name}/situation?situations=...`**: Player statistics filtered for specific game situations (e.g., `red_zone`, `third_down`). Returns aggregated stats calculated from PBP data for those situations.
+- **`/api/player/qb-stats`**: Advanced QB statistics (e.g., passer rating under pressure, completion percentage over expected). *Note: Implementation details may vary.*
+- **`/api/player/schedule-analysis`**: Analysis of a player's upcoming schedule, potentially including opponent defensive rankings. *Note: Implementation details may vary.*
+- **`/api/player/on-off-impact`**: Player's statistical performance when another specified player is on or off the field. *Note: Implementation details may vary.*
 
 ### Team Endpoints
-- **`/api/team/{team}`**: Comprehensive team statistics
+- **`/api/team/{team}`**: Comprehensive team statistics including offensive, defensive, injury, and depth chart information for a specified season (defaults to most recent).
 
 ### Game Endpoints
-- **`/api/game`**: Game details
-- **`/api/game/outlook`**: Game analysis and outlook
+- **`/api/game`**: Details for a specific game (e.g., score, key plays, stats). Requires game identification parameters. *Note: Implementation details may vary.*
+- **`/api/game/outlook`**: Analysis and outlook for an upcoming game, potentially including key matchups and predictions. *Note: Implementation details may vary.*
 
 ### Comparison Endpoints
-- **`/api/compare`**: Multi-player comparison
+- **`/api/compare`**: Side-by-side statistical comparison of multiple players. *Note: Implementation details may vary.*
 
 ### Utility Endpoints
-- **`/`**: Welcome message
-- **`/health`**: Health check
-- **`/api`**: API information
-- **`/api/seasons`**: Available seasons
-- **`/api/cache/clear`**: Clear cache entries
-- **`/api/cache/status`**: Cache status
+- **`/`**: Simple welcome message indicating the API is running.
+- **`/health`**: Health check status (e.g., `{"status": "ok"}`).
+- **`/api`**: General API information (e.g., version, documentation links).
+- **`/api/seasons`**: List of available seasons for which data is present.
+- **`/api/cache/clear`**: Confirmation message upon clearing cache entries. Requires authentication/permissions.
+- **`/api/cache/status`**: Status of the caching system (e.g., connection status, memory usage).
 
 ## Caching Architecture
 
@@ -189,3 +192,5 @@ python src/etl_refresh.py
 
 ## More Information
 - For questions or contributions, open an issue or PR
+
+
