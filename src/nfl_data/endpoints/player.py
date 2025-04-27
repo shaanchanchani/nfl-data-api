@@ -991,19 +991,20 @@ async def get_gamelog_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting game log: {str(e)}")
 
-@router.get("/api/player/{name}/situation/{situation_type}")
+@router.get("/api/player/{name}/situation")
 async def get_stats_by_situation_endpoint(
     name: str = Path(..., description="Player name"),
-    situation_type: str = Path(..., description="Situation type (red_zone, third_down, fourth_down, goal_line, two_minute_drill, etc.)"),
+    situations: List[str] = Query(..., description="Comma-separated list of situation types (e.g., 'red_zone,third_down')"),
     season: Optional[int] = Query(None, description="NFL season year (defaults to most recent)")
 ):
-    """Get player stats for specific game situations."""
+    """Get player stats filtered by one or more game situations."""
     try:
-        stats = await get_situation_stats(name, situation_type, season)
-        
+        # Pass the list of situations to the helper function
+        stats = await get_situation_stats(name, situations, season)
+
         if "error" in stats and "matches" in stats:
             return JSONResponse(status_code=300, content=stats)
-            
+
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting situation stats: {str(e)}")

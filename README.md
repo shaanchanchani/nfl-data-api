@@ -79,8 +79,7 @@ nfl-data-api/
 - **`/api/player/{name}/headshot`**: Player headshot URL
 - **`/api/player/{name}/career`**: Career statistics
 - **`/api/player/{name}/gamelog`**: Game-by-game statistics
-- **`/api/player/{name}/situation/{situation_type}`**: Situation-specific stats
-- **`/api/player/{name}/on-field`**: Stats when another player is on/off field
+- **`/api/player/{name}/situation?situations=...`**: Situation-specific stats (accepts comma-separated list like `?situations=red_zone,third_down`)
 - **`/api/player/qb-stats`**: Advanced QB statistics
 - **`/api/player/schedule-analysis`**: Upcoming schedule analysis
 - **`/api/player/on-off-impact`**: Player performance with/without another player

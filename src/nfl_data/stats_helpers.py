@@ -498,10 +498,10 @@ def get_game_stats(game_id: str) -> Dict:
     # TODO: Implement actual game stats retrieval
     return {}
 
-async def get_situation_stats(player_name: str, situation_type: str, season: Optional[int] = None) -> Dict:
-    """Get player stats in specific situations."""
+async def get_situation_stats(player_name: str, situations: List[str], season: Optional[int] = None) -> Dict:
+    """Get player stats filtered by one or more game situations."""
     # Resolve player first
-    player, alternatives = resolve_player(player_name)
+    player, alternatives = await resolve_player(player_name, season)
     if not player and alternatives:
         return {
             "error": f"Multiple players found matching '{player_name}'",
@@ -511,21 +511,149 @@ async def get_situation_stats(player_name: str, situation_type: str, season: Opt
         return {
             "error": f"No player found matching '{player_name}'"
         }
-    
-    # TODO: Implement actual situation stats calculation
-    # Just return a minimal structure
-    return {
-        "player_id": player["gsis_id"],
-        "player_name": player["display_name"],
-        "team": player["team_abbr"],
-        "position": player["position"],
-        "situation": situation_type,
-        "stats": {
-            "plays": 0,
-            "yards": 0,
-            "touchdowns": 0
+
+    player_id = player["gsis_id"]
+    position = player.get("position", "")
+    logger.info(f"Calculating situation stats for {player['display_name']} ({player_id}), situations: {situations}, season: {season}")
+
+    try:
+        # Load PBP data (consider filtering by season here if efficient)
+        pbp_data = await load_pbp_data(season)
+        if pbp_data.empty:
+            return {"error": f"No play-by-play data available for season {season}"}
+
+        # Filter relevant PBP columns if needed to reduce memory
+        # relevant_cols = [...] 
+        # pbp_data = pbp_data[relevant_cols]
+
+        # Find plays involving the player
+        player_id_variations = [player_id]
+        if 'gsis_it_id' in player and player['gsis_it_id']:
+             player_id_variations.append(player['gsis_it_id'])
+        
+        player_cols = [
+            'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+            'lateral_receiver_player_id', 'lateral_rusher_player_id',
+            'fumbled_1_player_id', 'fumbled_2_player_id', 'sack_player_id', # Add other relevant IDs
+            'pass_defense_1_player_id', 'pass_defense_2_player_id',
+            'interception_player_id', 'tackle_for_loss_1_player_id',
+            'tackle_for_loss_2_player_id', 'qb_hit_1_player_id', 'qb_hit_2_player_id' 
+        ]
+        valid_player_cols = [col for col in player_cols if col in pbp_data.columns]
+        player_plays_mask = pd.Series(False, index=pbp_data.index)
+        for pid_var in player_id_variations:
+             if pid_var: # Ensure ID is not None or empty
+                 for col in valid_player_cols:
+                      # Ensure comparison is robust to missing values (NaN)
+                      player_plays_mask |= (pbp_data[col].fillna('') == pid_var)
+
+        if not player_plays_mask.any():
+             logger.warning(f"No plays found involving player {player_id}")
+             # Return empty stats instead of error
+             return {
+                 "player_id": player_id,
+                 "player_name": player["display_name"],
+                 "team": player.get("team_abbr", ""),
+                 "position": position,
+                 "situations_requested": situations,
+                 "season": season,
+                 "stats": { "plays": 0 }
+             }
+
+        player_plays = pbp_data[player_plays_mask].copy()
+        logger.info(f"Found {len(player_plays)} plays involving player {player_id}")
+
+        # Apply situation filters
+        combined_situation_mask = pd.Series(False, index=player_plays.index)
+        valid_situations_applied = []
+
+        for situation in situations:
+            situation_mask = pd.Series(False, index=player_plays.index)
+            situation_key = situation.lower().strip()
+            applied_flag = False
+
+            if situation_key == "red_zone":
+                if 'yardline_100' in player_plays.columns:
+                     situation_mask = player_plays['yardline_100'] <= 20
+                     applied_flag = True
+            elif situation_key == "third_down":
+                if 'down' in player_plays.columns:
+                     situation_mask = player_plays['down'] == 3
+                     applied_flag = True
+            elif situation_key == "fourth_down":
+                 if 'down' in player_plays.columns:
+                     situation_mask = player_plays['down'] == 4
+                     applied_flag = True
+            elif situation_key == "goal_line":
+                if 'yardline_100' in player_plays.columns:
+                     situation_mask = player_plays['yardline_100'] <= 5 # Adjust definition as needed
+                     applied_flag = True
+            elif situation_key == "two_minute_drill":
+                 if 'qtr' in player_plays.columns and 'half_seconds_remaining' in player_plays.columns:
+                     two_min_mask = (
+                         ((player_plays['qtr'] == 2) & (player_plays['half_seconds_remaining'] <= 120)) |
+                         ((player_plays['qtr'] == 4) & (player_plays['game_seconds_remaining'] <= 120)) # Use game_seconds for 4th qtr
+                     )
+                     situation_mask = two_min_mask
+                     applied_flag = True
+            # Add more situations here if needed
+            else:
+                 logger.warning(f"Unsupported situation type requested: {situation}")
+                 continue # Skip unsupported situation
+
+            if applied_flag:
+                 logger.info(f"Applying filter for situation: {situation_key}")
+                 combined_situation_mask |= situation_mask.fillna(False) # Combine masks with OR, handle NaNs
+                 if situation not in valid_situations_applied:
+                     valid_situations_applied.append(situation)
+            else:
+                 logger.warning(f"Could not apply filter for situation '{situation_key}' due to missing PBP columns.")
+        
+        # Filter plays by the combined situation mask
+        if not valid_situations_applied:
+             # Handle case where none of the requested situations could be applied
+             logger.error(f"None of the requested situations could be applied: {situations}")
+             # Optionally return an error or specific message
+             # For now, return stats for all player plays if no valid situation filters applied
+             situation_filtered_plays = player_plays 
+        elif not combined_situation_mask.any():
+            logger.info(f"No plays found matching the requested situations: {valid_situations_applied}")
+            situation_filtered_plays = pd.DataFrame(columns=player_plays.columns) # Empty dataframe
+        else:
+            situation_filtered_plays = player_plays[combined_situation_mask]
+            logger.info(f"Found {len(situation_filtered_plays)} plays after applying situation filters: {valid_situations_applied}")
+
+        # Calculate stats using the helper function
+        calculated_stats = get_position_specific_stats_from_pbp(
+            situation_filtered_plays, 
+            position,
+            player_id=player_id
+            # Pass other args to get_position_specific_stats_from_pbp if needed
+        )
+
+        # Add play count
+        calculated_stats['plays'] = len(situation_filtered_plays)
+
+        # Format response
+        return {
+            "player_id": player_id,
+            "player_name": player["display_name"],
+            "team": player.get("team_abbr", ""),
+            "position": position,
+            "situations_applied": valid_situations_applied,
+            "season_filter": season,
+            "stats": calculated_stats
         }
-    }
+
+    except FileNotFoundError as e:
+         logger.error(f"Data file not found: {e}")
+         return {"error": f"Required data file not found for season {season}. Please ensure data is loaded."}
+    except KeyError as e:
+         logger.error(f"Missing expected column in PBP data: {e}")
+         return {"error": f"Data processing error: Missing expected column '{e}'. The data might be incomplete or corrupted."}
+    except Exception as e:
+        logger.exception(f"Error calculating situation stats for {player_name}, situations {situations}: {str(e)}")
+        return {"error": f"An unexpected error occurred: {str(e)}"}
 
 def normalize_team_name(team: str) -> str:
     """Normalize team name to standard abbreviation."""

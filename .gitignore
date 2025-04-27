@@ -45,3 +45,5 @@ ENV/
 Thumbs.db 
 
 PLANS.md
+
+cache/
