@@ -49,27 +49,27 @@ make_debug_request() {
 
 # 1. Single valid situation
 echo "Test Case 1: Single valid situation (red_zone)" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation?situations=red_zone"
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career&situations=red_zone"
 
 # 2. Multiple valid situations
 echo "Test Case 2: Multiple valid situations (third_down,fourth_down)" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation?situations=third_down,fourth_down"
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career&situations=third_down,fourth_down"
 
 # 3. Mix of valid and invalid situations
 echo "Test Case 3: Mix of valid and invalid (goal_line,fifth_down)" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation?situations=goal_line,fifth_down"
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career&situations=goal_line,fifth_down"
 
 # 4. Single invalid situation
 echo "Test Case 4: Single invalid situation (first_and_ten)" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation?situations=first_and_ten"
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career&situations=first_and_ten"
 
-# 5. Empty situation list (should likely error or return default)
+# 5. Empty situation list (should now be handled gracefully by /stats endpoint)
 echo "Test Case 5: Empty situation list" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation?situations="
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career&situations="
 
-# 6. No situations parameter (should error - parameter is required)
+# 6. No situations parameter (should return stats without situation filter)
 echo "Test Case 6: Missing situations parameter" >> "$LOG_FILE"
-make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/situation"
+make_debug_request "/api/player/${PLAYER_NAME_ENCODED}/stats?aggregate=career"
 
 # --- End Test Cases ---
 

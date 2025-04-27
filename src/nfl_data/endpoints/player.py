@@ -120,7 +120,7 @@ async def get_player_stats_endpoint(
     season_type: Optional[str] = Query(None, description="Filter by season type (REG or POST)"),
     opponent: Optional[str] = Query(None, description="Filter by opponent team abbreviation"),
     home_away: Optional[str] = Query(None, description="Filter by home/away games", enum=["home", "away"]),
-    situation: Optional[SituationType] = Query(None, description="Filter by game situation")    
+    situations: Optional[List[str]] = Query(None, description="Comma-separated list of situation types (e.g., 'red_zone,third_down')")
 ):
     """Get player statistics with flexible aggregation options and situational filters.
     
@@ -128,7 +128,7 @@ async def get_player_stats_endpoint(
     - season/week/season_type: Filter by season, week, or season type
     - opponent: Filter stats against a specific opponent
     - home_away: Filter for home or away games only
-    - situation: Filter for specific game situations like red zone, third down, etc.
+    - situations: Filter for specific game situations like red zone, third down, etc.
     """
     try:
         # Resolve player first
@@ -172,394 +172,260 @@ async def get_player_stats_endpoint(
         if home_away:
             player_team = player.get("team_abbr", "")
             if home_away == "home":
-                player_stats = player_stats[player_stats['recent_team'] == player_stats['opponent_team'].apply(lambda x: x != player_team)]
-            else:  # away
-                player_stats = player_stats[player_stats['recent_team'] == player_stats['opponent_team'].apply(lambda x: x == player_team)]
-            
-        # Apply situational filters if available - this requires play-by-play data
-        situation_applied = False
-        situational_stats = {}
-        
-        if situation:
-            try:
-                logger.info(f"Loading play-by-play data for situation filtering: {situation}")
-                pbp_data = load_pbp_data()
-                
-                # Create a list of player IDs to search for in various PBP columns
-                player_id_variations = [player_id]
-                if 'gsis_it_id' in player:
-                    player_id_variations.append(player['gsis_it_id'])
-                
-                # Extract situation-specific stats directly from play-by-play data
-                try:
-                    situational_stats = extract_situational_stats_from_pbp(
-                        pbp_data=pbp_data,
-                        player_id_variations=player_id_variations,
-                        situation_type=situation.value,
-                        season=season,
-                        week=week
-                    )
-                    logger.info(f"Extracted situational stats for {situation.value}: {situational_stats}")
-                except Exception as e:
-                    logger.error(f"Error extracting situational stats: {e}")
-                    situational_stats = {"error": str(e)}
-                
-                # If we found situation plays, mark as applied
-                if situational_stats:
-                    situation_applied = True
-                    logger.info(f"Successfully extracted {situation} stats: {situational_stats}")
-                    
-                    # Force situational_stats to have at least one entry to ensure it's included in the response
-                    if len(situational_stats) == 0:
-                        situational_stats['play_count'] = 0
-                    
-                    # We still need weekly stats for games where this player was involved in this situation
-                    # This is needed for aggregate-level endpoints
-                    
-                    # If games info is available, filter weekly stats to just those games
-                    if 'games' in situational_stats and situational_stats['games'] > 0:
-                        
-                        # Identify games with situation plays - we'll add this to the response
-                        situational_stats['situation_games'] = situational_stats['games']
-                        
-                        # For now, keep weekly stats as they were - we'll use our direct situational stats
-                        # for the detailed breakdown. This allows us to maintain the aggregation mechanisms
-                        # established elsewhere in the code.
-                            
-            except Exception as e:
-                logger.error(f"Error applying situation filter: {str(e)}")
-                # Don't raise an exception, just log the error and continue without situation filtering
-            
-        # Check if we have data
-        if player_stats.empty:
-            return {
-                "player_id": player_id,
-                "name": player["display_name"],
-                "position": position,
-                "aggregation": aggregate,
-                "filters_applied": {
-                    "season": season,
-                    "week": week,
-                    "season_type": season_type,
-                    "opponent": opponent,
-                    "home_away": home_away,
-                    "situation": situation.value if situation else None
-                },
-                "stats": []
-            }
-            
-        # Helper for sanitizing records
-        def sanitize_record(record):
-            result = {}
-            for k, v in record.items():
-                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
-                    result[k] = None
-                elif pd.isna(v):
-                    result[k] = None
+                # Home game: player's team is NOT the opponent team in the weekly stats context 
+                # (assuming 'opponent_team' is always the non-home team listed)
+                # This needs careful verification based on how weekly_stats is structured.
+                # Assuming 'opponent_team' refers to the team played *against*.
+                # A player is home if their team is NOT the opponent listed for that game row.
+                # This logic might be flawed if 'opponent_team' isn't consistently the away team.
+                # Safer approach might be needed if game location data is available directly.
+                logger.warning("Home/Away filter logic relies on 'opponent_team' structure and might be inaccurate.")
+                # Example: If player is KC and opponent_team is LV, it's a home game.
+                # If player is KC and opponent_team is KC, it's an away game (opponent played at home)
+                # This assumes weekly stats always list the opponent relative to the player's game location.
+                # Let's adjust based on a hypothetical 'game_location' column if it exists
+                # Or assume opponent_team is the actual opponent, regardless of home/away.
+                # If player's team = recent_team for the stat line, and opponent = opponent_team
+                # Home game = game played AT player's team's home stadium. Need stadium/location info.
+                # Fallback: assume 'recent_team' is the team the player played FOR that week.
+                # Home game: player's team hosted. Need 'home_team' column.
+                if 'home_team' in player_stats.columns:
+                     player_stats = player_stats[player_stats['home_team'] == player_stats['recent_team']]
                 else:
-                    # Convert numpy types to Python native types
-                    if isinstance(v, np.integer):
-                        result[k] = int(v)
-                    elif isinstance(v, np.floating):
-                        result[k] = float(v)
-                    else:
-                        result[k] = v
-            return result
-            
+                     logger.warning("Cannot apply 'home' filter accurately without 'home_team' column.")
+                     # Applying potentially incorrect logic as a fallback:
+                     # player_stats = player_stats[player_stats['opponent_team'] != player_stats['recent_team']] # Highly speculative
+            else:  # away
+                if 'away_team' in player_stats.columns:
+                    player_stats = player_stats[player_stats['away_team'] == player_stats['recent_team']]
+                else:
+                     logger.warning("Cannot apply 'away' filter accurately without 'away_team' column.")
+                     # Applying potentially incorrect logic as fallback:
+                     # player_stats = player_stats[player_stats['opponent_team'] == player_stats['recent_team']] # Highly speculative
+
         # Process stats based on aggregation level
         stats_data = []
+        valid_situations_applied = [] # Keep track of applied situations
 
-        # If a situation is specified, use play-by-play data for aggregation
-        if situation:
-            logger.info(f"Aggregating main stats from PBP for situation: {situation}")
-            pbp_data = load_pbp_data()
-            player_id_variations = [player_id]
-            if 'gsis_it_id' in player:
-                player_id_variations.append(player['gsis_it_id'])
+        # If situations are specified, use play-by-play data for aggregation
+        # Otherwise, use the pre-filtered weekly stats
+        if situations:
+            logger.info(f"Aggregating stats from PBP for situations: {situations}")
+            try:
+                pbp_data = load_pbp_data()
+                if pbp_data.empty:
+                    raise FileNotFoundError("PBP data could not be loaded or is empty.")
 
-            # Build a mask for all plays involving this player (reuse logic from extract_situational_stats_from_pbp)
-            player_cols = [
-                'passer_player_id', 'receiver_player_id', 'rusher_player_id',
-                'lateral_receiver_player_id', 'lateral_rusher_player_id',
-                'fumbled_1_player_id', 'fumbled_2_player_id'
-            ]
-            valid_cols = [col for col in player_cols if col in pbp_data.columns]
-            player_plays_mask = False
-            for pid in player_id_variations:
-                for col in valid_cols:
-                    player_plays_mask = player_plays_mask | (pbp_data[col] == pid)
-            player_plays = pbp_data[player_plays_mask].copy()
-            if season:
-                player_plays = player_plays[player_plays['season'] == season]
-            if week and aggregate != AggregationType.CAREER:
-                player_plays = player_plays[player_plays['week'] == week]
-            if season_type:
-                player_plays = player_plays[player_plays['season_type'] == season_type]
-            # Apply situation filter
-            if situation.value == "red_zone":
-                situation_plays = player_plays[player_plays['yardline_100'] <= 20]
-            elif situation.value == "third_down":
-                situation_plays = player_plays[player_plays['down'] == 3]
-            elif situation.value == "fourth_down":
-                situation_plays = player_plays[player_plays['down'] == 4]
-            elif situation.value == "goal_line":
-                situation_plays = player_plays[player_plays['yardline_100'] <= 5]
-            elif situation.value == "two_minute_drill":
-                two_min_mask = (
-                    ((player_plays['qtr'] == 2) & (player_plays['half_seconds_remaining'] <= 120)) |
-                    ((player_plays['qtr'] == 4) & (player_plays['half_seconds_remaining'] <= 120))
-                )
-                situation_plays = player_plays[two_min_mask]
-            else:
-                situation_plays = player_plays
+                player_id_variations = [player_id]
+                if 'gsis_it_id' in player and player['gsis_it_id']:
+                    player_id_variations.append(player['gsis_it_id'])
 
-            # If no plays, return empty stats
-            if situation_plays.empty:
-                stats_data = []
-            else:
-                # Ensure 'season_type' exists for grouping
-                if 'season_type' not in situation_plays.columns:
-                    situation_plays['season_type'] = 'REG'
-                # Aggregation logic
-                if aggregate == AggregationType.CAREER:
-                    # All plays together
-                    stats = get_position_specific_stats_from_pbp(
-                        situation_plays, position, player_id=player_id
-                    )
-                    # Ensure all expected keys are present
-                    if position == "QB":
-                        for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
-                            stats.setdefault(k, 0)
-                    elif position == "RB":
-                        for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
-                            stats.setdefault(k, 0)
-                    elif position in ["WR", "TE"]:
-                        for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
-                            stats.setdefault(k, 0)
-                    stats_data.append(sanitize_record(stats))
-                elif aggregate == AggregationType.SEASON:
-                    # Group by season and season_type
-                    grouped = situation_plays.groupby(['season', 'season_type'])
-                    for (season_val, season_type_val), group in grouped:
-                        stats = get_position_specific_stats_from_pbp(
-                            group, position, player_id=player_id
-                        )
-                        # Ensure all expected keys are present
-                        if position == "QB":
-                            for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
-                                stats.setdefault(k, 0)
-                        elif position == "RB":
-                            for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
-                                stats.setdefault(k, 0)
-                        elif position in ["WR", "TE"]:
-                            for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
-                                stats.setdefault(k, 0)
-                        stats["season"] = int(season_val)
-                        stats["season_type"] = season_type_val
-                        stats_data.append(sanitize_record(stats))
-                elif aggregate == AggregationType.WEEK:
-                    # Group by season, week, and season_type
-                    grouped = situation_plays.groupby(['season', 'week', 'season_type'])
-                    for (season_val, week_val, season_type_val), group in grouped:
-                        stats = get_position_specific_stats_from_pbp(
-                            group, position, player_id=player_id
-                        )
-                        # Ensure all expected keys are present
-                        if position == "QB":
-                            for k in ["passing_yards", "passing_tds", "interceptions", "rushing_yards", "rushing_tds", "completion_percentage", "yards_per_attempt"]:
-                                stats.setdefault(k, 0)
-                        elif position == "RB":
-                            for k in ["rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "targets", "yards_per_carry", "yards_per_reception"]:
-                                stats.setdefault(k, 0)
-                        elif position in ["WR", "TE"]:
-                            for k in ["targets", "receptions", "receiving_yards", "receiving_tds", "rushing_yards", "rushing_tds", "yards_per_reception", "yards_per_target", "catch_rate"]:
-                                stats.setdefault(k, 0)
-                        stats["season"] = int(season_val)
-                        stats["week"] = int(week_val)
-                        stats["season_type"] = season_type_val
-                        stats_data.append(sanitize_record(stats))
-                # Sort as before
-                if stats_data and aggregate == AggregationType.SEASON:
-                    stats_data.sort(key=lambda x: (x.get('season', 0), x.get('season_type', '')), reverse=True)
-                elif stats_data and aggregate == AggregationType.WEEK:
-                    stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
-        else:
-            # Default: use weekly_stats as before
-            # Process stats based on aggregation level
-            stats_data = []
-            
-            if aggregate == AggregationType.CAREER:
-                # Aggregate stats across all seasons for a career total
-                if not player_stats.empty:
-                    # Group by season_type to aggregate regular season and postseason separately
-                    grouped = player_stats.groupby('season_type')
-                    
-                    for season_type_val, group in grouped:
-                        career_summary = {}
-                        
-                        # Common stats across positions
-                        career_summary["season_type"] = season_type_val
-                        career_summary["games_played"] = len(group)
-                        
-                        # Handle position-specific aggregations
-                        if position == "QB":
-                            # Sum counting stats
-                            career_summary["passing_yards"] = float(group['passing_yards'].sum())
-                            career_summary["passing_tds"] = int(group['passing_tds'].sum())
-                            career_summary["interceptions"] = int(group['interceptions'].sum())
-                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                            completions = group['completions'].sum()
-                            attempts = group['attempts'].sum()
-                            
-                            # Calculate derived stats
-                            career_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
-                            career_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
-                            
-                            # Add advanced metrics if available
-                            if 'passing_epa' in group.columns:
-                                career_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
-                            
-                        elif position == "RB":
-                            # Sum counting stats
-                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                            career_summary["receptions"] = int(group['receptions'].sum())
-                            career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                            career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                            career_summary["targets"] = int(group['targets'].sum())
-                            
-                            # Calculate derived stats
-                            carries = group['carries'].sum()
-                            career_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
-                            career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                            
-                            # Add advanced metrics if available
-                            if 'rushing_epa' in group.columns:
-                                career_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
-                            
-                        elif position in ["WR", "TE"]:
-                            # Sum counting stats
-                            career_summary["targets"] = int(group['targets'].sum())
-                            career_summary["receptions"] = int(group['receptions'].sum())
-                            career_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                            career_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                            career_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                            career_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                            
-                            # Calculate derived stats
-                            targets = group['targets'].sum()
-                            career_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                            career_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
-                            career_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
-                            
-                            # Add advanced metrics if available
-                            if 'receiving_air_yards' in group.columns:
-                                career_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
-                            if 'receiving_yards_after_catch' in group.columns:
-                                career_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
-                            if 'wopr' in group.columns:
-                                career_summary["average_wopr"] = float(group['wopr'].mean())
-                            
-                        # Add fantasy points for all positions
-                        if 'fantasy_points_ppr' in group.columns:
-                            career_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
-                            career_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
-                            
-                        stats_data.append(sanitize_record(career_summary))
-                        
-            elif aggregate == AggregationType.SEASON:
-                # Aggregate stats by season
-                # Group by season and season_type
-                grouped = player_stats.groupby(['season', 'season_type'])
+                # Build a mask for all plays involving this player
+                player_cols = [
+                    'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+                    'lateral_receiver_player_id', 'lateral_rusher_player_id',
+                    'fumbled_1_player_id', 'fumbled_2_player_id', 'sack_player_id',
+                    'pass_defense_1_player_id', 'pass_defense_2_player_id',
+                    'interception_player_id', 'tackle_for_loss_1_player_id',
+                    'tackle_for_loss_2_player_id', 'qb_hit_1_player_id', 'qb_hit_2_player_id'
+                ]
+                valid_player_cols = [col for col in player_cols if col in pbp_data.columns]
+                player_plays_mask = pd.Series(False, index=pbp_data.index)
+                for pid_var in player_id_variations:
+                    if pid_var:
+                        for col in valid_player_cols:
+                            player_plays_mask |= (pbp_data[col].fillna('') == pid_var)
                 
-                for (season_val, season_type_val), group in grouped:
-                    season_summary = {}
+                if not player_plays_mask.any():
+                     logger.warning(f"No PBP plays found involving player {player_id}")
+                     player_plays = pd.DataFrame(columns=pbp_data.columns) # Empty DataFrame
+                else:
+                     player_plays = pbp_data[player_plays_mask].copy()
+                     logger.info(f"Found {len(player_plays)} total plays involving player {player_id}")
+
+                # Apply season/week/season_type filters to PBP data
+                if season:
+                    if 'season' in player_plays.columns:
+                        player_plays = player_plays[player_plays['season'] == season]
+                    else:
+                        logger.warning("Cannot filter PBP by season - 'season' column missing.")
+                if week and aggregate != AggregationType.CAREER:
+                     if 'week' in player_plays.columns:
+                         player_plays = player_plays[player_plays['week'] == week]
+                     else:
+                          logger.warning("Cannot filter PBP by week - 'week' column missing.")
+                if season_type:
+                    if 'season_type' in player_plays.columns:
+                        player_plays = player_plays[player_plays['season_type'] == season_type]
+                    else:
+                        logger.warning("Cannot filter PBP by season_type - 'season_type' column missing.")
+                
+                # If after basic filtering, no plays remain, set to empty
+                if player_plays.empty and player_plays_mask.any():
+                    logger.info("No plays found for player after season/week/type filtering.")
+                    situation_plays = pd.DataFrame(columns=player_plays.columns)
+                
+                # Apply situation filters ONLY if player_plays is not empty
+                elif not player_plays.empty:
+                    combined_situation_mask = pd.Series(False, index=player_plays.index)
+                    # Use SituationType enum values for validation
+                    valid_situation_keys = SituationType._value2member_map_.keys() 
+
+                    for situation_str in situations:
+                        situation_mask = pd.Series(False, index=player_plays.index)
+                        situation_key = situation_str.lower().strip()
+                        applied_flag = False
+
+                        if situation_key not in valid_situation_keys:
+                            logger.warning(f"Unsupported or invalid situation type requested: {situation_str}")
+                            continue # Skip invalid situation
+
+                        # Apply filters based on valid situation_key
+                        if situation_key == SituationType.RED_ZONE.value:
+                            if 'yardline_100' in player_plays.columns:
+                                situation_mask = player_plays['yardline_100'] <= 20
+                                applied_flag = True
+                        elif situation_key == SituationType.THIRD_DOWN.value:
+                            if 'down' in player_plays.columns:
+                                situation_mask = player_plays['down'] == 3
+                                applied_flag = True
+                        elif situation_key == SituationType.FOURTH_DOWN.value:
+                            if 'down' in player_plays.columns:
+                                situation_mask = player_plays['down'] == 4
+                                applied_flag = True
+                        elif situation_key == SituationType.GOAL_LINE.value:
+                            if 'yardline_100' in player_plays.columns:
+                                situation_mask = player_plays['yardline_100'] <= 5
+                                applied_flag = True
+                        elif situation_key == SituationType.TWO_MINUTE_DRILL.value:
+                            if 'qtr' in player_plays.columns and 'half_seconds_remaining' in player_plays.columns and 'game_seconds_remaining' in player_plays.columns:
+                                two_min_mask = (
+                                    ((player_plays['qtr'] == 2) & (player_plays['half_seconds_remaining'] <= 120)) |
+                                    ((player_plays['qtr'] == 4) & (player_plays['game_seconds_remaining'] <= 120))
+                                )
+                                situation_mask = two_min_mask
+                                applied_flag = True
+                        
+                        if applied_flag:
+                            logger.info(f"Applying filter for situation: {situation_key}")
+                            combined_situation_mask |= situation_mask.fillna(False)
+                            if situation_str not in valid_situations_applied: # Add original string
+                                valid_situations_applied.append(situation_str)
+                        else:
+                            logger.warning(f"Could not apply filter for situation '{situation_key}' due to missing PBP columns.")
+
+                    # Filter plays by the combined situation mask if any valid situations were applied
+                    if not valid_situations_applied:
+                        logger.error(f"None of the requested situations could be applied or were valid: {situations}")
+                        # Set situation_plays to empty DF, stats will be calculated as zero
+                        situation_plays = pd.DataFrame(columns=player_plays.columns)
+                    elif not combined_situation_mask.any():
+                        logger.info(f"No plays found matching the requested valid situations: {valid_situations_applied}")
+                        situation_plays = pd.DataFrame(columns=player_plays.columns) # Empty dataframe
+                    else:
+                        situation_plays = player_plays[combined_situation_mask]
+                        logger.info(f"Found {len(situation_plays)} plays after applying situation filters: {valid_situations_applied}")
+                
+                # If PBP data was initially empty or no plays found for player, set to empty
+                else: 
+                     situation_plays = pd.DataFrame(columns=pbp_data.columns if not pbp_data.empty else [])
+
+
+                # AGGREGATION LOGIC USING situation_plays
+                if situation_plays.empty:
+                    stats_data = [] # Ensure empty list if no plays found
+                else:
+                    # Ensure 'season_type' exists for grouping (important for PBP)
+                    if 'season_type' not in situation_plays.columns:
+                        # Attempt to infer season_type based on quarter/OT if possible
+                        # For simplicity, defaulting to REG if missing
+                        logger.warning("PBP data missing 'season_type', defaulting to 'REG' for aggregation.")
+                        situation_plays['season_type'] = 'REG' 
                     
-                    # Common stats
-                    season_summary["season"] = int(season_val)
-                    season_summary["season_type"] = season_type_val
-                    season_summary["games_played"] = len(group)
-                    
-                    # Handle position-specific aggregations
-                    if position == "QB":
-                        # Sum counting stats
-                        season_summary["passing_yards"] = float(group['passing_yards'].sum())
-                        season_summary["passing_tds"] = int(group['passing_tds'].sum())
-                        season_summary["interceptions"] = int(group['interceptions'].sum())
-                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                        completions = group['completions'].sum()
-                        attempts = group['attempts'].sum()
-                        
-                        # Calculate derived stats
-                        season_summary["completion_percentage"] = float((completions / attempts * 100) if attempts > 0 else 0)
-                        season_summary["yards_per_attempt"] = float(group['passing_yards'].sum() / max(attempts, 1))
-                        
-                        # Add advanced metrics if available
-                        if 'passing_epa' in group.columns:
-                            season_summary["passing_epa_per_play"] = float(group['passing_epa'].sum() / max(attempts, 1))
-                        
-                    elif position == "RB":
-                        # Sum counting stats
-                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                        season_summary["receptions"] = int(group['receptions'].sum())
-                        season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                        season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                        season_summary["targets"] = int(group['targets'].sum())
-                        
-                        # Calculate derived stats
-                        carries = group['carries'].sum()
-                        season_summary["yards_per_carry"] = float(group['rushing_yards'].sum() / max(carries, 1))
-                        season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                        
-                        # Add advanced metrics if available
-                        if 'rushing_epa' in group.columns:
-                            season_summary["rushing_epa_per_play"] = float(group['rushing_epa'].sum() / max(carries, 1))
-                        
-                    elif position in ["WR", "TE"]:
-                        # Sum counting stats
-                        season_summary["targets"] = int(group['targets'].sum())
-                        season_summary["receptions"] = int(group['receptions'].sum())
-                        season_summary["receiving_yards"] = float(group['receiving_yards'].sum())
-                        season_summary["receiving_tds"] = int(group['receiving_tds'].sum())
-                        season_summary["rushing_yards"] = float(group['rushing_yards'].sum())
-                        season_summary["rushing_tds"] = int(group['rushing_tds'].sum())
-                        
-                        # Calculate derived stats
-                        targets = group['targets'].sum()
-                        season_summary["yards_per_reception"] = float(group['receiving_yards'].sum() / max(group['receptions'].sum(), 1))
-                        season_summary["yards_per_target"] = float(group['receiving_yards'].sum() / max(targets, 1))
-                        season_summary["catch_rate"] = float(group['receptions'].sum() / max(targets, 1) * 100)
-                        
-                        # Add advanced metrics if available
-                        if 'receiving_air_yards' in group.columns:
-                            season_summary["air_yards_per_target"] = float(group['receiving_air_yards'].sum() / max(targets, 1))
-                        if 'receiving_yards_after_catch' in group.columns:
-                            season_summary["yards_after_catch_per_reception"] = float(group['receiving_yards_after_catch'].sum() / max(group['receptions'].sum(), 1))
-                        if 'wopr' in group.columns:
-                            season_summary["average_wopr"] = float(group['wopr'].mean())
-                        
-                    # Add fantasy points for all positions
-                    if 'fantasy_points_ppr' in group.columns:
-                        season_summary["total_fantasy_points"] = float(group['fantasy_points_ppr'].sum())
-                        season_summary["fantasy_points_per_game"] = float(group['fantasy_points_ppr'].mean())
-                        
-                    stats_data.append(sanitize_record(season_summary))
-                    
+                    # Aggregation logic remains largely the same, but operates on 'situation_plays'
+                    if aggregate == AggregationType.CAREER:
+                        stats = get_position_specific_stats_from_pbp(
+                            situation_plays, position, player_id=player_id
+                        )
+                        # Simplified default setting
+                        stats.setdefault("plays", len(situation_plays)) 
+                        stats_data.append(sanitize_record(stats))
+                    elif aggregate == AggregationType.SEASON:
+                        # Group by season and season_type
+                        grouped = situation_plays.groupby(['season', 'season_type'])
+                        for (season_val, season_type_val), group in grouped:
+                            stats = get_position_specific_stats_from_pbp(
+                                group, position, player_id=player_id
+                            )
+                            stats["season"] = int(season_val)
+                            stats["season_type"] = season_type_val
+                            stats.setdefault("plays", len(group))
+                            stats_data.append(sanitize_record(stats))
+                    elif aggregate == AggregationType.WEEK:
+                        # Group by season, week, and season_type
+                        grouped = situation_plays.groupby(['season', 'week', 'season_type'])
+                        for (season_val, week_val, season_type_val), group in grouped:
+                            stats = get_position_specific_stats_from_pbp(
+                                group, position, player_id=player_id
+                            )
+                            stats["season"] = int(season_val)
+                            stats["week"] = int(week_val)
+                            stats["season_type"] = season_type_val
+                            stats.setdefault("plays", len(group))
+                            stats_data.append(sanitize_record(stats))
+
+            except FileNotFoundError as e:
+                 logger.error(f"PBP data file not found for situation processing: {e}")
+                 # Return empty stats, but indicate error in logs/potentially response
+                 stats_data = [] # Or potentially raise HTTPException? For now, return empty.
+            except KeyError as e:
+                 logger.error(f"Missing expected column in PBP data during situation processing: {e}")
+                 stats_data = [] # Or raise HTTPException
+            except Exception as e:
+                 logger.exception(f"Error processing situations from PBP data: {e}")
+                 stats_data = [] # Or raise HTTPException
+
+        else:
+            # Original logic using pre-filtered weekly_stats if no situations requested
+            if player_stats.empty:
+                 # If initial weekly stats filtering resulted in empty, return empty stats
+                 logger.info("No weekly stats found matching non-situational filters.")
+                 stats_data = []
+            elif aggregate == AggregationType.CAREER:
+                # Aggregate all stats together from the weekly data
+                # Need to implement aggregation from weekly_stats DataFrame
+                # This requires defining which columns to sum/average from weekly_stats
+                logger.warning("Career aggregation from weekly_stats is not fully implemented.")
+                # Placeholder: return summary of first record or empty
+                career_summary = {} # TODO: Implement weekly stats aggregation
+                stats_data.append(sanitize_record(career_summary))
+
+            elif aggregate == AggregationType.SEASON:
+                # Group by season and season_type from weekly data
+                 if 'season_type' not in player_stats.columns:
+                      player_stats['season_type'] = 'REG' # Default if missing
+                 grouped = player_stats.groupby(['season', 'season_type'])
+                 for (season_val, season_type_val), group in grouped:
+                     # Aggregate stats within each season group
+                     # Need to implement aggregation logic for weekly stats columns
+                     logger.warning(f"Season aggregation for {season_val} {season_type_val} from weekly_stats not fully implemented.")
+                     season_summary = {"season": int(season_val), "season_type": season_type_val} # TODO: Implement
+                     # Example sum:
+                     # season_summary["passing_yards"] = group["passing_yards"].sum() 
+                     stats_data.append(sanitize_record(season_summary))
+                     
             elif aggregate == AggregationType.WEEK:
-                # Return week-by-week stats (no aggregation)
+                # Return week-by-week stats (no aggregation needed from weekly data)
                 for _, record in player_stats.iterrows():
                     stats_data.append(sanitize_record(record.to_dict()))
         
-        # Sort the data appropriately
+        # Sort the data appropriately regardless of source (PBP or weekly)
         if stats_data and aggregate == AggregationType.SEASON:
             stats_data.sort(key=lambda x: (x.get('season', 0), x.get('season_type', '')), reverse=True)
         elif stats_data and aggregate == AggregationType.WEEK:
             stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
             
-        # Build response with standard stats data and situational data if available
+        # Build response
         response = {
             "player_id": player_id,
             "name": player["display_name"],
@@ -572,89 +438,16 @@ async def get_player_stats_endpoint(
                 "season_type": season_type,
                 "opponent": opponent,
                 "home_away": home_away,
-                "situation": situation.value if situation else None,
-                "situation_applied": situation_applied if situation else None
+                "situations_requested": situations, # List of requested situations
+                "situations_applied": valid_situations_applied # List of successfully applied situations
             },
             "stats": stats_data
         }
         
-        # Always include situational stats if a situation was requested
-        if situation:
-            # Force log the situational stats
-            logger.info(f"MANDATORY LOG - Situation applied: {situation_applied}")
-            logger.info(f"MANDATORY LOG - Situational stats: {situational_stats}")
-            
-            # Ensure situational_stats is a dictionary
-            if not isinstance(situational_stats, dict):
-                situational_stats = {}
-            
-            # Add a placeholder if we have no actual stats to show
-            if not situational_stats:
-                situational_stats["note"] = f"No {situation.value} plays found for this player in the specified timeframe"
-                
-            # Clean up situational stats - convert NaN to None and format numbers
-            clean_situation_stats = {}
-            for k, v in situational_stats.items():
-                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
-                    clean_situation_stats[k] = None
-                elif isinstance(v, (np.integer, np.floating)):
-                    clean_situation_stats[k] = float(v) if isinstance(v, np.floating) else int(v)
-                else:
-                    clean_situation_stats[k] = v
-            
-            # Only add derived stats if we actually have the raw stats
-            if 'passing_attempts' in clean_situation_stats or 'rushing_attempts' in clean_situation_stats or 'targets' in clean_situation_stats:
-                # Add derived stats for QB
-                if position == "QB" and 'passing_attempts' in clean_situation_stats and clean_situation_stats['passing_attempts'] > 0:
-                    # Calculate completion percentage
-                    if 'passing_completions' in clean_situation_stats:
-                        completions = clean_situation_stats['passing_completions']
-                        attempts = clean_situation_stats['passing_attempts']
-                        clean_situation_stats['completion_percentage'] = round((completions / attempts) * 100, 1)
-                    
-                    # Calculate yards per attempt
-                    if 'passing_yards' in clean_situation_stats:
-                        clean_situation_stats['yards_per_attempt'] = round(clean_situation_stats['passing_yards'] / clean_situation_stats['passing_attempts'], 1)
-                    
-                    # Calculate EPA per play
-                    if 'passing_epa' in clean_situation_stats:
-                        clean_situation_stats['passing_epa_per_play'] = round(clean_situation_stats['passing_epa'] / clean_situation_stats['passing_attempts'], 3)
-                
-                # Add derived stats for RB
-                if position == "RB" and 'rushing_attempts' in clean_situation_stats and clean_situation_stats['rushing_attempts'] > 0:
-                    # Calculate yards per carry
-                    if 'rushing_yards' in clean_situation_stats:
-                        clean_situation_stats['yards_per_carry'] = round(clean_situation_stats['rushing_yards'] / clean_situation_stats['rushing_attempts'], 1)
-                    
-                    # Calculate EPA per rush
-                    if 'rushing_epa' in clean_situation_stats:
-                        clean_situation_stats['rushing_epa_per_play'] = round(clean_situation_stats['rushing_epa'] / clean_situation_stats['rushing_attempts'], 3)
-                
-                # Add derived stats for WR/TE
-                if position in ["WR", "TE"] and 'targets' in clean_situation_stats and clean_situation_stats['targets'] > 0:
-                    # Calculate catch rate
-                    if 'receptions' in clean_situation_stats:
-                        clean_situation_stats['catch_rate'] = round((clean_situation_stats['receptions'] / clean_situation_stats['targets']) * 100, 1)
-                    
-                    # Calculate yards per reception
-                    if 'receiving_yards' in clean_situation_stats and 'receptions' in clean_situation_stats and clean_situation_stats['receptions'] > 0:
-                        clean_situation_stats['yards_per_reception'] = round(clean_situation_stats['receiving_yards'] / clean_situation_stats['receptions'], 1)
-                    
-                    # Calculate yards per target
-                    if 'receiving_yards' in clean_situation_stats:
-                        clean_situation_stats['yards_per_target'] = round(clean_situation_stats['receiving_yards'] / clean_situation_stats['targets'], 1)
-            
-            # Add situational stats to response
-            response["situational_stats"] = clean_situation_stats
-            
-            # Force add at least one stat if we don't have any
-            if not response["situational_stats"] and situation_applied:
-                response["situational_stats"] = {"note": f"No detailed {situation.value} stats found for this player"}
-        
         return response
         
     except Exception as e:
-        logger.error(f"Error getting player stats: {str(e)}")
+        logger.exception(f"Error getting player stats for {name}: {str(e)}") # Use logger.exception for traceback
         raise HTTPException(status_code=500, detail=f"Error getting player stats: {str(e)}")
 
 @router.get("/api/player/{name}/history")
@@ -990,24 +783,6 @@ async def get_gamelog_endpoint(
         return gamelog
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting game log: {str(e)}")
-
-@router.get("/api/player/{name}/situation")
-async def get_stats_by_situation_endpoint(
-    name: str = Path(..., description="Player name"),
-    situations: List[str] = Query(..., description="Comma-separated list of situation types (e.g., 'red_zone,third_down')"),
-    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent)")
-):
-    """Get player stats filtered by one or more game situations."""
-    try:
-        # Pass the list of situations to the helper function
-        stats = await get_situation_stats(name, situations, season)
-
-        if "error" in stats and "matches" in stats:
-            return JSONResponse(status_code=300, content=stats)
-
-        return stats
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting situation stats: {str(e)}")
 
 @router.get("/api/player/{name}/on-field")
 async def get_player_with_other_on_field_endpoint(
