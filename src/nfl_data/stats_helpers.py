@@ -765,6 +765,10 @@ def get_position_specific_stats_from_pbp(
     if len(plays) == 0:
         return {}
         
+    # Log input DataFrame columns and head
+    logger.info(f"[get_pos_stats] Received plays DataFrame with shape {plays.shape} and columns: {plays.columns.tolist()}")
+    # logger.debug(f"[get_pos_stats] Head of received plays:\n{plays.head().to_string()}") # DEBUG - potentially verbose
+
     # Apply game filters if provided
     if game_filters:
         filtered_plays = plays.copy()
@@ -855,8 +859,18 @@ def get_position_specific_stats_from_pbp(
     
     stats = {}
     
+    # Log filtered DataFrame info before position logic
+    logger.info(f"[get_pos_stats] Filtered plays DataFrame shape: {filtered_plays.shape}")
+    # logger.debug(f"[get_pos_stats] Head of filtered plays:\n{filtered_plays.head().to_string()}") # DEBUG - potentially verbose
+
     if position == 'QB':
         # Calculate QB stats from filtered plays
+        # Ensure required columns exist before attempting calculations
+        required_qb_cols = ['pass_attempt', 'complete_pass', 'yards_gained', 'pass_touchdown', 'interception', 'sack']
+        if not all(col in filtered_plays.columns for col in required_qb_cols):
+            logger.warning(f"[get_pos_stats] Missing required QB columns in filtered_plays. Available: {filtered_plays.columns.tolist()}")
+            return {} # Return empty if required columns are missing
+        
         passing_plays = filtered_plays[filtered_plays['pass_attempt'] == 1]
         total_attempts = len(passing_plays)
         completions = passing_plays['complete_pass'].fillna(0).sum()
@@ -876,6 +890,9 @@ def get_position_specific_stats_from_pbp(
         interception_percentage = (interceptions / total_attempts * 100) if total_attempts > 0 else 0
         sack_rate = (sacks / (total_attempts + sacks) * 100) if (total_attempts + sacks) > 0 else 0
         
+        # Log calculated QB stats
+        logger.info(f"[get_pos_stats QB] Attempts: {total_attempts}, Completions: {completions}, PassYds: {passing_yards}, PassTDs: {passing_tds}, INTs: {interceptions}, Sacks: {sacks}")
+
         stats.update({
             'total_attempts': int(total_attempts),
             'completions': int(completions),
@@ -890,6 +907,9 @@ def get_position_specific_stats_from_pbp(
             'sack_rate': float(sack_rate)
         })
         
+        # Log calculated QB stats
+        logger.info(f"[get_pos_stats QB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, Fum: {fumbles}")
+
     elif position == 'RB':
         # Calculate RB stats from filtered plays
         rushing_plays = filtered_plays[filtered_plays['rush_attempt'] == 1]
@@ -917,16 +937,36 @@ def get_position_specific_stats_from_pbp(
             'fumble_rate': float(fumble_rate)
         })
         
+        # Log calculated RB stats
+        logger.info(f"[get_pos_stats RB] Rushes: {total_rushes}, RushYds: {rushing_yards}, RushTDs: {rushing_tds}, Fum: {fumbles}")
+
     elif position in ['WR', 'TE']:
         # Calculate receiving stats from filtered plays
+        # Ensure required columns exist
+        required_rec_cols = ['pass_attempt', 'complete_pass', 'receiving_yards', 'pass_touchdown', 'first_down_pass', 'yards_after_catch', 'incomplete_pass']
+        # Player ID columns checked separately
+        if not all(col in filtered_plays.columns for col in required_rec_cols):
+             logger.warning(f"[get_pos_stats] Missing required Receiving columns in filtered_plays. Available: {filtered_plays.columns.tolist()}")
+             return {}
+        
+        # Check for player ID columns
+        receiver_id_col = None
+        if 'receiver_player_id' in filtered_plays.columns:
+             receiver_id_col = 'receiver_player_id'
+        elif 'receiver_id' in filtered_plays.columns:
+             receiver_id_col = 'receiver_id'
+        
+        if not receiver_id_col:
+             logger.warning("[get_pos_stats] Missing receiver ID column (receiver_player_id or receiver_id).")
+             return {}
+
         receiving_plays = filtered_plays[
             (filtered_plays['pass_attempt'] == 1) &  # Only include actual pass plays
-            ((filtered_plays['receiver_player_id'] == player_id) |  # Match on exact player ID
-             (filtered_plays['receiver_id'] == player_id))  # Match on alternative ID field
+            (filtered_plays[receiver_id_col] == player_id) # Match on available player ID column
         ]
         
         # Log for debugging
-        logger.info(f"Found {len(receiving_plays)} receiving plays for player ID {player_id}")
+        logger.info(f"Found {len(receiving_plays)} receiving plays for player ID {player_id} using column {receiver_id_col}")
         
         # Total targets = number of plays where this player was the intended receiver
         total_targets = len(receiving_plays)
@@ -981,6 +1021,9 @@ def get_position_specific_stats_from_pbp(
             'yac_per_reception': float(yac_per_reception)
         })
         
+        # Log calculated Receiving stats
+        logger.info(f"[get_pos_stats Rec] Targets: {total_targets}, Rec: {total_receptions}, RecYds: {total_receiving_yards}, RecTDs: {receiving_tds}")
+
         # Verify with weekly data if available and no situation filters are applied
         if weekly_data is not None and player_id is not None and not situation_filters:
             player_weekly = weekly_data[weekly_data['player_id'] == player_id]
@@ -1012,6 +1055,8 @@ def get_position_specific_stats_from_pbp(
                                 stats['catch_rate'] = (stats['total_receptions'] / max(weekly_value, 1)) * 100
                                 stats['yards_per_target'] = stats['total_receiving_yards'] / max(weekly_value, 1)
     
+    # Log final stats dictionary before returning
+    logger.info(f"[get_pos_stats] Returning stats: {stats}")
     return stats
 
 # Position-specific stat mappings
