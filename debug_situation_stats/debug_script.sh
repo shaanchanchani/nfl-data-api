@@ -9,7 +9,7 @@ BASE_URL="https://nfl-data-api-dev.up.railway.app"
 LOG_FILE="debug_output.log"
 
 # Example player
-PLAYER_NAME="Justin Jefferson"
+PLAYER_NAME="Derrick Henry"
 PLAYER_NAME_ENCODED="${PLAYER_NAME// /%20}"
 
 # Initialize log file (overwrite if exists)

@@ -475,6 +475,11 @@ async def get_player_stats_endpoint(
                                 for col in valid_player_cols:
                                     player_plays_mask |= (pbp_data[col].fillna('') == pid_var)
                         
+                        # === DEBUG LOGGING START ===
+                        print(f"[PRINT DEBUG][Career Path] Checking PBP Mask Count for {player_id}") # Add direct print
+                        logger.info(f"[DEBUG][Career Path] PBP Mask Count for {player_id}: {player_plays_mask.sum()}")
+                        # === DEBUG LOGGING END ===
+                                                
                         if not player_plays_mask.any():
                             logger.warning(f"No PBP plays found involving player {player_id} for career aggregation.")
                             all_player_plays = pd.DataFrame(columns=pbp_data.columns) # Empty DataFrame
