@@ -548,6 +548,10 @@ async def get_player_stats_endpoint(
         elif stats_data and aggregate == AggregationType.WEEK:
             stats_data.sort(key=lambda x: (x.get('season', 0), x.get('week', 0)), reverse=True)
             
+        # === DEBUG Logging Before Final Sanitization ===
+        logger.info(f"[DEBUG] Data BEFORE final sanitization: {stats_data}") 
+        # === End DEBUG Logging ===
+                
         # === Final Sanitization ===
         # Apply sanitize_record to the final list of dicts before returning
         # This ensures any NaN/inf values introduced after the initial calculation are handled
