@@ -340,6 +340,10 @@ async def get_player_stats_endpoint(
                             if applied_flag:
                                 logger.info(f"Applying filter for situation: {situation_key}")
                                 combined_situation_mask |= situation_mask.fillna(False)
+                                # === DEBUG LOGGING START ===
+                                logger.info(f"[DEBUG] Situation: {situation_key}, Individual Mask Count: {situation_mask.sum()}")
+                                logger.info(f"[DEBUG] Combined Mask Count (after {situation_key}): {combined_situation_mask.sum()}")
+                                # === DEBUG LOGGING END ===
                                 if situation_str not in valid_situations_applied: # Add original string
                                     valid_situations_applied.append(situation_str)
                             else:
