@@ -52,27 +52,27 @@ def download_parquet(url: str, cache_path: Path, dataset_name: str = "") -> None
 async def main():
     # Players
     logger.info("Loading players data...")
-    players_df = await load_players()
+    players_df = await load_players(force_rebuild=True)
     atomic_save(players_df, CACHE_DIR / "players_condensed.parquet")
 
     # Weekly stats
     logger.info("Loading weekly stats...")
-    weekly_stats_df = await load_weekly_stats(seasons=SEASONS)
+    weekly_stats_df = await load_weekly_stats(seasons=SEASONS, force_rebuild=True)
     atomic_save(weekly_stats_df, CACHE_DIR / "weekly_stats_condensed.parquet")
 
     # Rosters
     logger.info("Loading rosters...")
-    rosters_df = await load_rosters(seasons=SEASONS)
+    rosters_df = await load_rosters(seasons=SEASONS, force_rebuild=True)
     atomic_save(rosters_df, CACHE_DIR / "rosters_condensed.parquet")
 
     # Depth charts
     logger.info("Loading depth charts...")
-    depth_charts_df = await load_depth_charts(seasons=SEASONS)
+    depth_charts_df = await load_depth_charts(seasons=SEASONS, force_rebuild=True)
     atomic_save(depth_charts_df, CACHE_DIR / "depth_charts_condensed.parquet")
 
     # Injuries
     logger.info("Loading injuries...")
-    injuries_df = await load_injuries(seasons=SEASONS)
+    injuries_df = await load_injuries(seasons=SEASONS, force_rebuild=True)
     atomic_save(injuries_df, CACHE_DIR / "injuries_condensed.parquet")
 
     # Play by play (condensed)

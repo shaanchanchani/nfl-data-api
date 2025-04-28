@@ -244,10 +244,12 @@ async def get_player_stats_endpoint(
                     pbp_data = load_pbp_data()
                     if pbp_data.empty:
                         raise FileNotFoundError("PBP data could not be loaded or is empty.")
+                    logger.info(f"[ENDPOINT DEBUG] Step 1: Loaded PBP data, shape: {pbp_data.shape}") # ADDED
 
                     player_id_variations = [player_id]
                     if 'gsis_it_id' in player and player['gsis_it_id']:
                         player_id_variations.append(player['gsis_it_id'])
+                    logger.info(f"[ENDPOINT DEBUG] Step 2: Player ID variations: {player_id_variations}") # ADDED
 
                     # Build a mask for all plays involving this player
                     player_cols = [
@@ -264,12 +266,14 @@ async def get_player_stats_endpoint(
                         if pid_var:
                             for col in valid_player_cols:
                                 player_plays_mask |= (pbp_data[col].fillna('') == pid_var)
+                    logger.info(f"[ENDPOINT DEBUG] Step 3: Created player_plays_mask, sum: {player_plays_mask.sum()}") # ADDED
                     
                     if not player_plays_mask.any():
                          logger.warning(f"No PBP plays found involving player {player_id}")
                          player_plays = pd.DataFrame(columns=pbp_data.columns) # Empty DataFrame
                     else:
                          player_plays = pbp_data[player_plays_mask].copy()
+                         logger.info(f"[ENDPOINT DEBUG] Step 4: Filtered player_plays, shape: {player_plays.shape}") # ADDED
                          logger.info(f"Found {len(player_plays)} total plays involving player {player_id}")
 
                     # Apply season/week/season_type filters to PBP data
@@ -288,6 +292,8 @@ async def get_player_stats_endpoint(
                             player_plays = player_plays[player_plays['season_type'] == season_type]
                         else:
                             logger.warning("Cannot filter PBP by season_type - 'season_type' column missing.")
+                    
+                    logger.info(f"[ENDPOINT DEBUG] Step 5: Applied season/week/type filters, shape: {player_plays.shape}") # ADDED
                     
                     # If after basic filtering, no plays remain, set to empty
                     if player_plays.empty and player_plays_mask.any():
@@ -349,6 +355,8 @@ async def get_player_stats_endpoint(
                             else:
                                 logger.warning(f"Could not apply filter for situation '{situation_key}' due to missing PBP columns.")
 
+                        logger.info(f"[ENDPOINT DEBUG] Step 6: Created combined_situation_mask, sum: {combined_situation_mask.sum()}") # ADDED
+
                         # Filter plays by the combined situation mask if any valid situations were applied
                         if not valid_situations_applied:
                             # Use situation_list in log message
@@ -360,6 +368,7 @@ async def get_player_stats_endpoint(
                             situation_plays = pd.DataFrame(columns=player_plays.columns) # Empty dataframe
                         else:
                             situation_plays = player_plays[combined_situation_mask]
+                            logger.info(f"[ENDPOINT DEBUG] Step 7: Filtered situation_plays, shape: {situation_plays.shape}") # ADDED
                             logger.info(f"Found {len(situation_plays)} plays after applying situation filters: {valid_situations_applied}")
                     
                     # If PBP data was initially empty or no plays found for player, set to empty
@@ -380,7 +389,8 @@ async def get_player_stats_endpoint(
                         
                         # Aggregation logic remains largely the same, but operates on 'situation_plays'
                         if aggregate == AggregationType.CAREER:
-                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER with situations for {player_id}") # ADDED LOG
+                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER with situations for {player_id}") # Existing LOG
+                            logger.info(f"[ENDPOINT DEBUG] Shape of situation_plays before calling stats fn: {situation_plays.shape}") # Existing LOG
                             stats = get_position_specific_stats_from_pbp(
                                 situation_plays, position, player_id=player_id
                             )
@@ -492,7 +502,8 @@ async def get_player_stats_endpoint(
                         if all_player_plays.empty:
                             stats = {}
                         else:
-                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER (no situations) for {player_id}") # ADDED LOG
+                            logger.info(f"[ENDPOINT DEBUG] Calling get_position_specific_stats_from_pbp for CAREER (no situations) for {player_id}") # Existing LOG
+                            logger.info(f"[ENDPOINT DEBUG] Shape of all_player_plays before calling stats fn: {all_player_plays.shape}") # ADDED LOG
                             stats = get_position_specific_stats_from_pbp(
                                 all_player_plays, position, player_id=player_id
                             )

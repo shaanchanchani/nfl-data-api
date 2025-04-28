@@ -51,7 +51,7 @@ class CustomJSONResponse(JSONResponse):
             return json.dumps(
                 content,
                 ensure_ascii=False,
-                allow_nan=True,  # Allow NaN values to pass through
+                allow_nan=False,
                 indent=None,
                 separators=(",", ":"),
                 cls=CustomJSONEncoder,

@@ -317,12 +317,12 @@ def extract_situational_stats_from_pbp(pbp_data: pd.DataFrame, player_id_variati
     
     return stats
 
-async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_weekly_stats(seasons: Optional[List[int]] = None, force_rebuild: bool = False) -> pd.DataFrame:
     """Load weekly player stats from the condensed parquet file."""
     try:
-        # Use condensed file if available
+        # Use condensed file if available and not forcing rebuild
         condensed_path = CACHE_DIR / "weekly_stats_condensed.parquet"
-        if condensed_path.exists():
+        if not force_rebuild and condensed_path.exists():
             logger.info(f"Loading weekly stats from condensed file: {condensed_path}")
             stats_df = pd.read_parquet(condensed_path)
             
@@ -332,8 +332,9 @@ async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame
                 
             return stats_df
         
-        # Fall back to individual season files if condensed file not available
-        logger.warning("Condensed weekly stats file not found, falling back to individual season files")
+        # Fall back to individual season files if condensed file not available or forcing rebuild
+        if not force_rebuild: # Only log warning if not forced
+            logger.warning("Condensed weekly stats file not found, falling back to individual season files")
         if seasons is None:
             seasons = [2024]
         
@@ -364,19 +365,20 @@ async def load_weekly_stats(seasons: Optional[List[int]] = None) -> pd.DataFrame
         logger.error(f"Error loading weekly stats: {str(e)}")
         return pd.DataFrame()
 
-async def load_players() -> pd.DataFrame:
+async def load_players(force_rebuild: bool = False) -> pd.DataFrame:
     """Load player information from the condensed parquet file."""
     try:
-        # Try loading from condensed file first
+        # Try loading from condensed file first if not forcing rebuild
         condensed_path = CACHE_DIR / "players_condensed.parquet"
-        if condensed_path.exists():
+        if not force_rebuild and condensed_path.exists():
             logger.info(f"Loading players from condensed file: {condensed_path}")
             df = pd.read_parquet(condensed_path)
             if not df.empty:
                 return df
                 
-        # Fall back to standard players file if condensed not available
-        logger.warning("Condensed players file not found, falling back to standard file")
+        # Fall back to standard players file if condensed not available or forcing rebuild
+        if not force_rebuild: # Only log warning if not forced
+            logger.warning("Condensed players file not found, falling back to standard file")
         cache_path = CACHE_DIR / "players.parquet"
         
         # Download if not in cache or older than 1 day
@@ -410,12 +412,12 @@ def load_schedules(seasons: Optional[List[int]] = None) -> pd.DataFrame:
     df = pd.read_parquet(cache_path)
     return df[df["season"].isin(seasons)] if seasons else df
 
-async def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_injuries(seasons: Optional[List[int]] = None, force_rebuild: bool = False) -> pd.DataFrame:
     """Load injury reports from the condensed parquet file."""
     try:
-        # Try loading from condensed file first
+        # Try loading from condensed file first if not forcing rebuild
         condensed_path = CACHE_DIR / "injuries_condensed.parquet"
-        if condensed_path.exists():
+        if not force_rebuild and condensed_path.exists():
             logger.info(f"Loading injuries from condensed file: {condensed_path}")
             injuries_df = pd.read_parquet(condensed_path)
             
@@ -425,8 +427,9 @@ async def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
                 
             return injuries_df
         
-        # Fall back to individual season files if condensed file not available
-        logger.warning("Condensed injuries file not found, falling back to individual season files")
+        # Fall back to individual season files if condensed file not available or forcing rebuild
+        if not force_rebuild: # Only log warning if not forced
+            logger.warning("Condensed injuries file not found, falling back to individual season files")
         if seasons is None:
             seasons = [2024]  # Use previous year since current might not be available
         
@@ -457,12 +460,12 @@ async def load_injuries(seasons: Optional[List[int]] = None) -> pd.DataFrame:
         logger.error(f"Error loading injuries data: {str(e)}")
         return pd.DataFrame()
 
-async def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_depth_charts(seasons: Optional[List[int]] = None, force_rebuild: bool = False) -> pd.DataFrame:
     """Load team depth charts from the condensed parquet file."""
     try:
-        # Try loading from condensed file first
+        # Try loading from condensed file first if not forcing rebuild
         condensed_path = CACHE_DIR / "depth_charts_condensed.parquet"
-        if condensed_path.exists():
+        if not force_rebuild and condensed_path.exists():
             logger.info(f"Loading depth charts from condensed file: {condensed_path}")
             depth_df = pd.read_parquet(condensed_path)
             
@@ -472,8 +475,9 @@ async def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame
                 
             return depth_df
             
-        # Fall back to individual season files if condensed file not available
-        logger.warning("Condensed depth charts file not found, falling back to individual season files")
+        # Fall back to individual season files if condensed file not available or forcing rebuild
+        if not force_rebuild: # Only log warning if not forced
+            logger.warning("Condensed depth charts file not found, falling back to individual season files")
         if seasons is None:
             seasons = [2024]  # Use previous year since current might not be available
         
@@ -504,12 +508,12 @@ async def load_depth_charts(seasons: Optional[List[int]] = None) -> pd.DataFrame
         logger.error(f"Error loading depth charts data: {str(e)}")
         return pd.DataFrame()
 
-async def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
+async def load_rosters(seasons: Optional[List[int]] = None, force_rebuild: bool = False) -> pd.DataFrame:
     """Load roster data from the condensed parquet file."""
     try:
-        # Try loading from condensed file first
+        # Try loading from condensed file first if not forcing rebuild
         condensed_path = CACHE_DIR / "rosters_condensed.parquet"
-        if condensed_path.exists():
+        if not force_rebuild and condensed_path.exists():
             logger.info(f"Loading rosters from condensed file: {condensed_path}")
             rosters_df = pd.read_parquet(condensed_path)
             
@@ -519,8 +523,9 @@ async def load_rosters(seasons: Optional[List[int]] = None) -> pd.DataFrame:
                 
             return rosters_df
             
-        # Fall back to individual season files if condensed file not available
-        logger.warning("Condensed rosters file not found, falling back to individual season files")
+        # Fall back to individual season files if condensed file not available or forcing rebuild
+        if not force_rebuild: # Only log warning if not forced
+            logger.warning("Condensed rosters file not found, falling back to individual season files")
         if seasons is None:
             seasons = [2024]  # Use current season by default
         
