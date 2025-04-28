@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, float):
-            if np.isnan(obj) or np.isinf(obj):
+            if np.isnan(obj) or np.isinf(obj) or obj > 1.7976931348623157e+308 or obj < -1.7976931348623157e+308:
                 return None
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
-            if np.isnan(obj) or np.isinf(obj):
+            if np.isnan(obj) or np.isinf(obj) or obj > 1.7976931348623157e+308 or obj < -1.7976931348623157e+308:
                 return None
             return float(obj)
         if isinstance(obj, np.ndarray):
@@ -40,6 +40,14 @@ class CustomJSONEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, pd.DataFrame):
             return obj.to_dict('records')
+        if isinstance(obj, dict):
+            # Recursively sanitize dictionary values
+            return {k: self.default(v) if isinstance(v, (float, np.integer, np.floating, np.ndarray, pd.Series, pd.DataFrame, dict, list)) else v 
+                   for k, v in obj.items()}
+        if isinstance(obj, list):
+            # Recursively sanitize list items
+            return [self.default(item) if isinstance(item, (float, np.integer, np.floating, np.ndarray, pd.Series, pd.DataFrame, dict, list)) else item 
+                   for item in obj]
         return super().default(obj)
 
 # Load environment variables
@@ -48,10 +56,13 @@ load_dotenv()
 class CustomJSONResponse(JSONResponse):
     def render(self, content) -> bytes:
         try:
+            # Pre-process the content to handle NaN and Infinity values
+            sanitized_content = self._sanitize_content(content)
+            
             return json.dumps(
-                content,
+                sanitized_content,
                 ensure_ascii=False,
-                allow_nan=True,  # Allow NaN values to pass through
+                allow_nan=False,  # Don't allow NaN values to pass through
                 indent=None,
                 separators=(",", ":"),
                 cls=CustomJSONEncoder,
@@ -61,6 +72,44 @@ class CustomJSONResponse(JSONResponse):
             # Create a simplified response that will definitely serialize
             error_response = {"error": "Could not serialize response", "message": str(e)}
             return json.dumps(error_response).encode("utf-8")
+    
+    def _sanitize_content(self, content):
+        """Recursively sanitize content to handle problematic values."""
+        if content is None:
+            return None
+        
+        if isinstance(content, dict):
+            return {k: self._sanitize_content(v) for k, v in content.items()}
+        
+        if isinstance(content, list):
+            return [self._sanitize_content(item) for item in content]
+        
+        if isinstance(content, float):
+            if np.isnan(content) or np.isinf(content) or content > 1.7976931348623157e+308 or content < -1.7976931348623157e+308:
+                return None
+            return content
+        
+        if isinstance(content, np.integer):
+            return int(content)
+        
+        if isinstance(content, np.floating):
+            if np.isnan(content) or np.isinf(content) or content > 1.7976931348623157e+308 or content < -1.7976931348623157e+308:
+                return None
+            return float(content)
+        
+        if isinstance(content, np.ndarray):
+            return [self._sanitize_content(item) for item in content.tolist()]
+        
+        if isinstance(content, pd.Series):
+            return [self._sanitize_content(item) for item in content.tolist()]
+        
+        if isinstance(content, pd.DataFrame):
+            return [self._sanitize_content(row) for row in content.to_dict('records')]
+        
+        if pd.isna(content):
+            return None
+            
+        return content
 
 app = FastAPI(
     title="NFL Data API",

@@ -120,7 +120,8 @@ async def get_player_stats_endpoint(
     season_type: Optional[str] = Query(None, description="Filter by season type (REG or POST)"),
     opponent: Optional[str] = Query(None, description="Filter by opponent team abbreviation"),
     home_away: Optional[str] = Query(None, description="Filter by home/away games", enum=["home", "away"]),
-    situation: Optional[SituationType] = Query(None, description="Filter by game situation")    
+    situation: Optional[SituationType] = Query(None, description="Filter by game situation"),
+    team: Optional[str] = Query(None, description="Team abbreviation to disambiguate players with the same name")
 ):
     """Get player statistics with flexible aggregation options and situational filters.
     
@@ -129,16 +130,33 @@ async def get_player_stats_endpoint(
     - opponent: Filter stats against a specific opponent
     - home_away: Filter for home or away games only
     - situation: Filter for specific game situations like red zone, third down, etc.
+    - team: Specify team abbreviation to disambiguate players with the same name
     """
     try:
+        # Special handling for known ambiguous players
+        if name.lower() == "josh allen" and not team:
+            # Default to the Bills QB Josh Allen if team not specified
+            name = "Josh Allen"
+            team = "BUF"  # Buffalo Bills
+            
         # Resolve player first
         player, alternatives = await resolve_player(name, season)
+        
+        # If we have team information and multiple alternatives, filter by team
+        if not player and alternatives and team:
+            team_matches = [alt for alt in alternatives if alt.get('team_abbr') == team.upper()]
+            if len(team_matches) == 1:
+                player = team_matches[0]
+                alternatives = []
+            elif len(team_matches) > 1:
+                alternatives = team_matches
         
         if not player and alternatives:
             return JSONResponse(
                 status_code=300,
                 content={
                     "error": f"Multiple players found matching '{name}'",
+                    "message": "Please specify which player you want by adding the team parameter",
                     "matches": [{
                         **alt,
                         "full_context": f"{alt.get('display_name')} ({alt.get('position')}, {alt.get('team_abbr') or 'Retired'})"
@@ -250,21 +268,45 @@ async def get_player_stats_endpoint(
             
         # Helper for sanitizing records
         def sanitize_record(record):
-            result = {}
-            for k, v in record.items():
-                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
-                    result[k] = None
-                elif pd.isna(v):
-                    result[k] = None
-                else:
-                    # Convert numpy types to Python native types
-                    if isinstance(v, np.integer):
-                        result[k] = int(v)
-                    elif isinstance(v, np.floating):
-                        result[k] = float(v)
+            if isinstance(record, dict):
+                result = {}
+                for k, v in record.items():
+                    if isinstance(v, float) and (np.isnan(v) or np.isinf(v) or v > 1.7976931348623157e+308 or v < -1.7976931348623157e+308):
+                        result[k] = None
+                    elif pd.isna(v):
+                        result[k] = None
+                    elif isinstance(v, dict) or isinstance(v, list):
+                        # Recursively sanitize nested structures
+                        result[k] = sanitize_record(v)
                     else:
-                        result[k] = v
-            return result
+                        # Convert numpy types to Python native types
+                        if isinstance(v, np.integer):
+                            result[k] = int(v)
+                        elif isinstance(v, np.floating):
+                            if np.isnan(v) or np.isinf(v) or v > 1.7976931348623157e+308 or v < -1.7976931348623157e+308:
+                                result[k] = None
+                            else:
+                                result[k] = float(v)
+                        else:
+                            result[k] = v
+                return result
+            elif isinstance(record, list):
+                return [sanitize_record(item) for item in record]
+            else:
+                # Handle scalar values
+                if isinstance(record, float) and (np.isnan(record) or np.isinf(record) or record > 1.7976931348623157e+308 or record < -1.7976931348623157e+308):
+                    return None
+                elif pd.isna(record):
+                    return None
+                elif isinstance(record, np.integer):
+                    return int(record)
+                elif isinstance(record, np.floating):
+                    if np.isnan(record) or np.isinf(record) or record > 1.7976931348623157e+308 or record < -1.7976931348623157e+308:
+                        return None
+                    else:
+                        return float(record)
+                else:
+                    return record
             
         # Process stats based on aggregation level
         stats_data = []
@@ -693,21 +735,45 @@ async def get_player_history(
         
         # Helper function to sanitize records
         def sanitize_record(record):
-            result = {}
-            for k, v in record.items():
-                if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
-                    result[k] = None
-                elif pd.isna(v):
-                    result[k] = None
-                else:
-                    # Convert numpy types to Python native types
-                    if isinstance(v, np.integer):
-                        result[k] = int(v)
-                    elif isinstance(v, np.floating):
-                        result[k] = float(v)
+            if isinstance(record, dict):
+                result = {}
+                for k, v in record.items():
+                    if isinstance(v, float) and (np.isnan(v) or np.isinf(v) or v > 1.7976931348623157e+308 or v < -1.7976931348623157e+308):
+                        result[k] = None
+                    elif pd.isna(v):
+                        result[k] = None
+                    elif isinstance(v, dict) or isinstance(v, list):
+                        # Recursively sanitize nested structures
+                        result[k] = sanitize_record(v)
                     else:
-                        result[k] = v
-            return result
+                        # Convert numpy types to Python native types
+                        if isinstance(v, np.integer):
+                            result[k] = int(v)
+                        elif isinstance(v, np.floating):
+                            if np.isnan(v) or np.isinf(v) or v > 1.7976931348623157e+308 or v < -1.7976931348623157e+308:
+                                result[k] = None
+                            else:
+                                result[k] = float(v)
+                        else:
+                            result[k] = v
+                return result
+            elif isinstance(record, list):
+                return [sanitize_record(item) for item in record]
+            else:
+                # Handle scalar values
+                if isinstance(record, float) and (np.isnan(record) or np.isinf(record) or record > 1.7976931348623157e+308 or record < -1.7976931348623157e+308):
+                    return None
+                elif pd.isna(record):
+                    return None
+                elif isinstance(record, np.integer):
+                    return int(record)
+                elif isinstance(record, np.floating):
+                    if np.isnan(record) or np.isinf(record) or record > 1.7976931348623157e+308 or record < -1.7976931348623157e+308:
+                        return None
+                    else:
+                        return float(record)
+                else:
+                    return record
         
         # Process the requested history type
         history_data = []
