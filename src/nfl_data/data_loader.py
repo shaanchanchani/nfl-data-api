@@ -2,6 +2,7 @@
 
 import os
 import pandas as pd
+import numpy as np
 import requests
 import requests_cache
 from pathlib import Path
@@ -138,27 +139,92 @@ def safe_read_parquet(path: Path, dataset_name: str = "") -> pd.DataFrame:
         path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to read {dataset_name} from {path}: {str(e)}")
 
-def load_pbp_data() -> pd.DataFrame:
-    """Load play-by-play data from the condensed parquet file."""
-    # First try the configured cache directory
-    cache_path = CACHE_DIR / "play_by_play_condensed.parquet"
+def load_pbp_data(force_rebuild: bool = False) -> pd.DataFrame:
+    """
+    Load play-by-play data from the condensed parquet file.
     
-    # If file doesn't exist in the default cache directory, try the development path
-    if not cache_path.exists():
-        dev_cache_path = Path(os.path.expanduser("~/dev/nfl-data-api/cache/play_by_play_condensed.parquet"))
-        if dev_cache_path.exists():
-            logger.info(f"Using development path for play-by-play data: {dev_cache_path}")
-            return pd.read_parquet(dev_cache_path)
-        else:
-            # Also try a relative path from current directory
-            relative_path = Path("./cache/play_by_play_condensed.parquet")
-            if relative_path.exists():
-                logger.info(f"Using relative path for play-by-play data: {relative_path}")
-                return pd.read_parquet(relative_path)
+    Args:
+        force_rebuild: If True, skip the condensed file and force rebuilding from raw files
+    
+    Returns:
+        DataFrame containing play-by-play data
+    """
+    try:
+        # Log environment info for debugging
+        from .config import IS_RAILWAY
+        logger.info(f"Loading PBP data (Railway: {IS_RAILWAY}, Cache dir: {CACHE_DIR}, Force rebuild: {force_rebuild})")
+        
+        # First try the configured cache directory from config if not forcing rebuild
+        cache_path = CACHE_DIR / "play_by_play_condensed.parquet"
+        
+        if not force_rebuild and cache_path.exists():
+            logger.info(f"Loading play-by-play data from configured cache: {cache_path}")
+            return pd.read_parquet(cache_path)
+        
+        # If we're on Railway, try additional known Railway paths
+        if IS_RAILWAY:
+            railway_paths = [
+                Path("/data/cache/play_by_play_condensed.parquet"),
+                Path("/cache/play_by_play_condensed.parquet"),
+                Path("/app/cache/play_by_play_condensed.parquet"),
+                Path("/app/data/cache/play_by_play_condensed.parquet")
+            ]
             
-            raise FileNotFoundError(f"Condensed play-by-play file not found: {cache_path}, {dev_cache_path}, or {relative_path}")
-    
-    return pd.read_parquet(cache_path)
+            for path in railway_paths:
+                if path.exists():
+                    logger.info(f"Found PBP data at Railway path: {path}")
+                    return pd.read_parquet(path)
+        
+        # If not on Railway or Railway paths failed, try development paths (for local dev only)
+        if not IS_RAILWAY and not force_rebuild:
+            dev_paths = [
+                Path(os.path.expanduser("~/dev/nfl-data-api/cache/play_by_play_condensed.parquet")),
+                Path("./cache/play_by_play_condensed.parquet"),
+                Path("../cache/play_by_play_condensed.parquet")
+            ]
+            
+            for path in dev_paths:
+                if path.exists():
+                    logger.info(f"Using development path for play-by-play data: {path}")
+                    return pd.read_parquet(path)
+        
+        # If we need to rebuild, try to load individual season files and combine them
+        try:
+            if not force_rebuild:  # Only log if not forced
+                logger.warning("Condensed play-by-play file not found in any location, attempting to rebuild")
+            
+            # Get available seasons from the available_seasons function to minimize hardcoding
+            from datetime import datetime
+            current_year = datetime.now().year
+            seasons = list(range(current_year - 4, current_year + 1))  # Last 5 years
+            
+            pbp_dfs = []
+            for season in seasons:
+                season_path = CACHE_DIR / f"play_by_play_{season}.parquet"
+                if season_path.exists():
+                    logger.info(f"Found play-by-play file for season {season}")
+                    season_df = pd.read_parquet(season_path)
+                    if not season_df.empty:
+                        pbp_dfs.append(season_df)
+            
+            if pbp_dfs:
+                logger.info(f"Combining {len(pbp_dfs)} seasonal play-by-play files")
+                combined_df = pd.concat(pbp_dfs, ignore_index=True)
+                logger.info(f"Created combined play-by-play data with {len(combined_df)} rows")
+                
+                # We don't save the file here - that's the job of etl_refresh.py
+                # Just return the combined data
+                return combined_df
+        except Exception as rebuild_err:
+            logger.error(f"Failed to rebuild from seasonal files: {str(rebuild_err)}")
+        
+        # If all attempts fail, return empty DataFrame with a clear error
+        logger.error("All attempts to load play-by-play data failed")
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"Error loading play-by-play data: {str(e)}")
+        return pd.DataFrame()
 
 def extract_situational_stats_from_pbp(pbp_data: pd.DataFrame, player_id_variations: list, situation_type: str, 
                                        season: Optional[int] = None, week: Optional[int] = None) -> Dict:

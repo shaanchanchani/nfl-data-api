@@ -241,7 +241,16 @@ async def get_player_stats_endpoint(
             else:
                 logger.info(f"Aggregating stats from PBP for situations: {situation_list}")
                 try:
-                    pbp_data = load_pbp_data()
+                    # Try to load PBP data, force rebuild if empty or fails
+                    try:
+                        pbp_data = load_pbp_data()
+                        if pbp_data.empty:
+                            logger.warning("Initial PBP data load returned empty DataFrame, trying with force_rebuild=True")
+                            pbp_data = load_pbp_data(force_rebuild=True)
+                    except Exception as e:
+                        logger.warning(f"Failed to load PBP data: {str(e)}, trying with force_rebuild=True")
+                        pbp_data = load_pbp_data(force_rebuild=True)
+                        
                     if pbp_data.empty:
                         raise FileNotFoundError("PBP data could not be loaded or is empty.")
                     logger.info(f"[ENDPOINT DEBUG] Step 1: Loaded PBP data, shape: {pbp_data.shape}") # ADDED
@@ -394,6 +403,10 @@ async def get_player_stats_endpoint(
                             stats = get_position_specific_stats_from_pbp(
                                 situation_plays, position, player_id=player_id
                             )
+                            
+                            # Clean NaN/Infinity values from stats to prevent JSON serialization errors
+                            stats = {k: (None if pd.isna(v) or (isinstance(v, float) and np.isinf(v)) else v) 
+                                    for k, v in stats.items()}
                             # Simplified default setting
                             stats.setdefault("plays", len(situation_plays)) 
                             stats_data.append(sanitize_record(stats))
@@ -507,6 +520,10 @@ async def get_player_stats_endpoint(
                             stats = get_position_specific_stats_from_pbp(
                                 all_player_plays, position, player_id=player_id
                             )
+                            
+                            # Clean NaN/Infinity values from stats to prevent JSON serialization errors
+                            stats = {k: (None if pd.isna(v) or (isinstance(v, float) and np.isinf(v)) else v) 
+                                    for k, v in stats.items()}
                         
                         # Add total play count    
                         stats.setdefault("plays", len(all_player_plays)) 
