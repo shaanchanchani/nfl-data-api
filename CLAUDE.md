@@ -1,7 +1,6 @@
 curl -X 'GET' \
-  'http://0.0.0.0:8080/api/players/top?position=QB&n=10&ascending=false&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true' \
+  'https://nfl-data-api-dev.up.railway.app/api/players/top?position=QB&n=10&ascending=false&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true' \
   -H 'accept: application/json'
-
 {
   "position": "QB",
   "leaderboard": [
@@ -10,7 +9,7 @@ curl -X 'GET' \
       "player_id": "00-0010346",
       "player_name": "Peyton Manning",
       "team": "IND",
-      "position": "P",
+      "position": "QB",
       "games_played": 16,
       "attempts": 497,
       "completions": 336,
@@ -34,7 +33,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Peyton",
       "player_last_name": "Manning",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Tennessee",
       "player_height": 77,
@@ -43,14 +41,15 @@ curl -X 'GET' \
       "player_draft_club": "IND",
       "player_draft_number": 1,
       "player_team_abbr": "DEN",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal",
+      "player_position": "QB"
     },
     {
       "season": 2007,
       "player_id": "00-0019596",
       "player_name": "Tom Brady",
       "team": "NE",
-      "position": "P",
+      "position": "QB",
       "games_played": 16,
       "attempts": 578,
       "completions": 398,
@@ -74,7 +73,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Tom",
       "player_last_name": "Brady",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Michigan",
       "player_height": 76,
@@ -83,14 +81,15 @@ curl -X 'GET' \
       "player_draft_club": "NE",
       "player_draft_number": 199,
       "player_team_abbr": "TB",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/q7dpdlxyu5rs05rgh1le"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/q7dpdlxyu5rs05rgh1le",
+      "player_position": "QB"
     },
     {
       "season": 2011,
       "player_id": "00-0023459",
       "player_name": "Aaron Rodgers",
       "team": "GB",
-      "position": "P",
+      "position": "QB",
       "games_played": 15,
       "attempts": 501,
       "completions": 342,
@@ -114,7 +113,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Aaron",
       "player_last_name": "Rodgers",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "California",
       "player_height": 74,
@@ -123,14 +121,15 @@ curl -X 'GET' \
       "player_draft_club": "GB",
       "player_draft_number": 24,
       "player_team_abbr": "NYJ",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to"
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to",
+      "player_position": "QB"
     },
     {
       "season": 2011,
       "player_id": "00-0023459",
       "player_name": "Aaron Rodgers",
       "team": "GB",
-      "position": "P",
+      "position": "QB",
       "games_played": 15,
       "attempts": 501,
       "completions": 342,
@@ -154,7 +153,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Aaron",
       "player_last_name": "Rodgers",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "California",
       "player_height": 74,
@@ -163,14 +161,15 @@ curl -X 'GET' \
       "player_draft_club": "GB",
       "player_draft_number": 24,
       "player_team_abbr": "NYJ",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to"
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to",
+      "player_position": "QB"
     },
     {
       "season": 2013,
       "player_id": "00-0010346",
       "player_name": "Peyton Manning",
       "team": "DEN",
-      "position": "P",
+      "position": "QB",
       "games_played": 16,
       "attempts": 659,
       "completions": 450,
@@ -194,7 +193,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Peyton",
       "player_last_name": "Manning",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Tennessee",
       "player_height": 77,
@@ -203,14 +201,15 @@ curl -X 'GET' \
       "player_draft_club": "IND",
       "player_draft_number": 1,
       "player_team_abbr": "DEN",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal",
+      "player_position": "QB"
     },
     {
       "season": 2005,
       "player_id": "00-0010346",
       "player_name": "Peyton Manning",
       "team": "IND",
-      "position": "P",
+      "position": "QB",
       "games_played": 16,
       "attempts": 453,
       "completions": 305,
@@ -234,7 +233,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Peyton",
       "player_last_name": "Manning",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Tennessee",
       "player_height": 77,
@@ -243,14 +241,15 @@ curl -X 'GET' \
       "player_draft_club": "IND",
       "player_draft_number": 1,
       "player_team_abbr": "DEN",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal",
+      "player_position": "QB"
     },
     {
       "season": 2018,
       "player_id": "00-0033873",
       "player_name": "Patrick Mahomes",
       "team": "KC",
-      "position": "P",
+      "position": "QB",
       "games_played": 16,
       "attempts": 580,
       "completions": 383,
@@ -274,7 +273,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Patrick",
       "player_last_name": "Mahomes",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Texas Tech",
       "player_height": 75,
@@ -283,14 +281,15 @@ curl -X 'GET' \
       "player_draft_club": "KC",
       "player_draft_number": 10,
       "player_team_abbr": "KC",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/qrdbvu4iqy7wkqg8jq8d"
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/qrdbvu4iqy7wkqg8jq8d",
+      "player_position": "QB"
     },
     {
       "season": 2013,
       "player_id": "00-0021206",
       "player_name": "Josh McCown",
       "team": "CHI",
-      "position": "P",
+      "position": "QB",
       "games_played": 8,
       "attempts": 224,
       "completions": 149,
@@ -314,7 +313,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Joshua",
       "player_last_name": "McCown",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Sam Houston State",
       "player_height": 76,
@@ -323,14 +321,15 @@ curl -X 'GET' \
       "player_draft_club": "ARI",
       "player_draft_number": 81,
       "player_team_abbr": "HOU",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu",
+      "player_position": "QB"
     },
     {
       "season": 2013,
       "player_id": "00-0021206",
       "player_name": "Josh McCown",
       "team": "CHI",
-      "position": "P",
+      "position": "QB",
       "games_played": 8,
       "attempts": 224,
       "completions": 149,
@@ -354,7 +353,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Joshua",
       "player_last_name": "McCown",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Sam Houston State",
       "player_height": 76,
@@ -363,14 +361,15 @@ curl -X 'GET' \
       "player_draft_club": "ARI",
       "player_draft_number": 81,
       "player_team_abbr": "HOU",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu"
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu",
+      "player_position": "QB"
     },
     {
       "season": 2024,
       "player_id": "00-0034796",
       "player_name": "Lamar Jackson",
       "team": "BAL",
-      "position": "P",
+      "position": "QB",
       "games_played": 17,
       "attempts": 474,
       "completions": 316,
@@ -394,7 +393,6 @@ curl -X 'GET' \
       "season_type": "REG",
       "player_first_name": "Lamar",
       "player_last_name": "Jackson",
-      "player_position": "QB",
       "player_position_group": "QB",
       "player_college_name": "Louisville",
       "player_height": 74,
@@ -403,33 +401,8 @@ curl -X 'GET' \
       "player_draft_club": "BAL",
       "player_draft_number": 32,
       "player_team_abbr": "BAL",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/cruqs6qpbykh7a2whd7p"
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/cruqs6qpbykh7a2whd7p",
+      "player_position": "QB"
     }
   ]
 }
-
-
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
-INFO:     127.0.0.1:49491 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49491 - "GET /docs HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49491 - "GET /openapi.json HTTP/1.1" 200 OK
-TOP PLAYERS ENDPOINT: Position=QB, Aggregation=season, Week=None, Seasons=None
-DEBUG: PBP parquet file exists with 1184719 rows
-DEBUG: Seasons available: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-DEBUG: Weeks available: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-DEBUG: calculate_qb_stats input:
-  - Input pbp rows: 1184719
-  - Aggregation: season, Seasons: None, Week: None
-/Users/shaanchanchani/dev/nfl-data-api/src/nfl_data/endpoints/player_stats.py:600: SettingWithCopyWarning:
-A value is trying to be set on a copy of a slice from a DataFrame.
-Try using .loc[row_indexer,col_indexer] = value instead
-
-See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
-  result['position'] = result['player_id'].map(
-DEBUG: After applying thresholds:
-  - 1419 rows remaining
-  - Columns: ['season', 'player_id', 'player_name', 'team', 'position', 'games_played', 'attempts', 'completions', 'completion_pct', 'passing_yards', 'passing_tds', 'passing_interceptions', 'qb_epa', 'passing_cpoe', 'epa_per_dropback', 'passing_air_yards', 'passing_yards_after_catch', 'pacr', 'passing_first_downs', 'passing_2pt_conversions', 'sacks_suffered', 'passing_fumbles', 'passing_fumbles_lost', 'qb_dropback', 'fantasy_points', 'season_type']
-  - Sample sort values for epa_per_dropback: [-0.10269202930211097, -0.05229911122973512, -0.15558200744618605]
-DEBUG: After sorting, got 10 top players for season aggregation
-INFO:     127.0.0.1:49492 - "GET /api/players/top?position=QB&n=10&ascending=false&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true HTTP/1.1" 200 OK

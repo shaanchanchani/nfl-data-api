@@ -379,8 +379,74 @@ async def get_top_players_endpoint(
                 sanitized_rec["position"] = position
             records.append(sanitized_rec)
             
+        # Prepare summary metrics based on position and aggregation type
+        summary_metrics = {}
+        
+        # Include aggregation type in the response
+        summary_metrics["aggregation_type"] = aggregation_type.value
+        
+        # Set key metrics for different positions and aggregation types
+        if position.upper() in QB_POSITIONS:
+            if aggregation_type.value == "season":
+                # Most relevant season-level QB metrics
+                summary_metrics["key_metrics"] = ["season", "player_name", "team", "games_played", 
+                                               "completions", "attempts", "completion_pct", 
+                                               "passing_yards", "passing_tds", "passing_interceptions",
+                                               "epa_per_dropback", "qb_epa"]
+            elif aggregation_type.value == "week":
+                # Most relevant week-level QB metrics
+                summary_metrics["key_metrics"] = ["season", "week", "player_name", "team", 
+                                               "completions", "attempts", "completion_pct", 
+                                               "passing_yards", "passing_tds", "passing_interceptions",
+                                               "epa_per_dropback"]
+            elif aggregation_type.value == "career":
+                # Most relevant career-level QB metrics
+                summary_metrics["key_metrics"] = ["player_name", "team", "games_played", 
+                                               "completions", "attempts", "completion_pct", 
+                                               "passing_yards", "passing_tds", "passing_interceptions",
+                                               "epa_per_dropback", "qb_epa"]
+        elif position.upper() in RB_POSITIONS:
+            if aggregation_type.value == "season":
+                # Most relevant season-level RB metrics
+                summary_metrics["key_metrics"] = ["season", "player_name", "team", "games_played", 
+                                               "carries", "rushing_yards", "rushing_tds", 
+                                               "rushing_first_downs", "rushing_fumbles_lost"]
+            elif aggregation_type.value == "week":
+                # Most relevant week-level RB metrics
+                summary_metrics["key_metrics"] = ["season", "week", "player_name", "team", 
+                                               "carries", "rushing_yards", "rushing_tds", 
+                                               "rushing_first_downs", "rushing_fumbles_lost"]
+            elif aggregation_type.value == "career":
+                # Most relevant career-level RB metrics
+                summary_metrics["key_metrics"] = ["player_name", "team", "games_played", 
+                                               "carries", "rushing_yards", "rushing_tds", 
+                                               "rushing_first_downs", "rushing_fumbles_lost"]
+        elif position.upper() in WR_POSITIONS or position.upper() in TE_POSITIONS:
+            if aggregation_type.value == "season":
+                # Most relevant season-level WR/TE metrics
+                summary_metrics["key_metrics"] = ["season", "player_name", "team", "games_played", 
+                                               "targets", "receptions", "receiving_yards", "receiving_tds", 
+                                               "receiving_first_downs", "yac", "drops"]
+            elif aggregation_type.value == "week":
+                # Most relevant week-level WR/TE metrics
+                summary_metrics["key_metrics"] = ["season", "week", "player_name", "team", 
+                                               "targets", "receptions", "receiving_yards", "receiving_tds", 
+                                               "receiving_first_downs", "yac", "drops"]
+            elif aggregation_type.value == "career":
+                # Most relevant career-level WR/TE metrics
+                summary_metrics["key_metrics"] = ["player_name", "team", "games_played", 
+                                               "targets", "receptions", "receiving_yards", "receiving_tds", 
+                                               "receiving_first_downs", "yac", "drops"]
+        
+        # Filter records to only include key metrics if they were specified
+        if "key_metrics" in summary_metrics and summary_metrics["key_metrics"]:
+            # We're not actually filtering the records here since we want to keep all data
+            # This is just metadata about which fields are most important
+            pass
+            
         return {
             "position": position,
+            "summary": summary_metrics,
             "leaderboard": records,
         }
     except HTTPException as he:

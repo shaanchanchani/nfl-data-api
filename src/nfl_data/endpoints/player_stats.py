@@ -2292,6 +2292,11 @@ def get_top_players(
             player_id_col = id_cols[0]
             print(f"DEBUG: Found player ID column: {player_id_col}")
             
+            # First drop duplicates if necessary
+            if 'player_id' in filtered_stats.columns and 'season' in filtered_stats.columns and 'week' in filtered_stats.columns:
+                filtered_stats = filtered_stats.drop_duplicates(subset=['player_id', 'season', 'week'])
+                print(f"DEBUG: Removed duplicates based on player_id, season, and week, {len(filtered_stats)} rows remaining")
+                
             # Sort all individual games (week-level stats) and get top N
             top_players = filtered_stats.sort_values(
                 by=sort_by,
@@ -2305,6 +2310,15 @@ def get_top_players(
             return pd.DataFrame()
     else:
         # For season, career, or specific week aggregation, sort and get top N
+        # Drop duplicates based on appropriate fields for the aggregation type
+        if 'player_id' in filtered_stats.columns:
+            if 'season' in filtered_stats.columns and aggregation_type == 'season':
+                filtered_stats = filtered_stats.drop_duplicates(subset=['player_id', 'season'])
+                print(f"DEBUG: Removed duplicates based on player_id and season, {len(filtered_stats)} rows remaining")
+            elif aggregation_type == 'career':
+                filtered_stats = filtered_stats.drop_duplicates(subset=['player_id'])
+                print(f"DEBUG: Removed duplicates based on player_id for career stats, {len(filtered_stats)} rows remaining")
+        
         top_players = filtered_stats.sort_values(
             by=sort_by,
             ascending=ascending,
