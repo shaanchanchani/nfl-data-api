@@ -7,9 +7,6 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
 
-from ..stats_helpers import (
-    get_player_comparison as get_player_comparison_single
-)
 
 from fastapi_cache.decorator import cache
 
@@ -90,22 +87,3 @@ async def compare_players(
         return comparison
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error comparing players: {str(e)}")
-
-@router.get("/api/player/on-off-impact")
-async def get_on_off_impact(
-    player: str = Query(..., description="Player name to analyze"),
-    other_player: str = Query(..., description="Other player to analyze impact with"),
-    season: Optional[int] = Query(None, description="NFL season year (defaults to most recent)")
-):
-    """Analyze a player's performance when another player is on/off the field."""
-    try:
-        # This is a placeholder implementation
-        impact = {
-            "player": player,
-            "other_player": other_player,
-            "season": season or 2023,
-            "impact_analysis": "On/off impact analysis not implemented yet"
-        }
-        return impact
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error analyzing on/off impact: {str(e)}")

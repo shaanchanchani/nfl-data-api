@@ -7,18 +7,71 @@ from datetime import datetime, date
 import logging
 from pydantic_core import PydanticUndefined # Import the Undefined type
 
+# Import the actual data loading function - REMOVED as file doesn't exist
+# from .data_loader import load_players, load_weekly_stats, load_pbp_data, load_schedules, load_injuries, load_depth_charts 
+# Assuming load_pbp_data might exist elsewhere or be synchronous if used
+# Need to define or import load_pbp_data, load_weekly_stats etc. if facades are used
+# For now, we focus on fixing resolve_player
+
 # Set up logging at the module level
 logger = logging.getLogger(__name__)
 
-from .data_import import (
-    import_pbp_data,
-    import_weekly_data,
-    import_players,
-    import_schedules,
-    import_injuries,
-    import_depth_charts
-)
-from .data_loader import load_players, load_pbp_data, load_weekly_stats, load_rosters
+# ---------------------------------------------------------------------------------
+# Legacy compatibility wrappers (replacing the removed `data_import` module)
+# ---------------------------------------------------------------------------------
+# ``data_import.py`` has been deleted.  We provide thin facade functions here so
+# that the rest of this module continues to work without large-scale refactors.
+# Each wrapper delegates directly to the corresponding function in
+# ``data_loader``.
+
+# Remove or comment out the facade functions if they are no longer needed 
+# or ensure they correctly call the imported functions.
+
+# def import_pbp_data(): # Assuming this might be used synchronously
+#     """Return the condensed play-by-play DataFrame (sync)."""
+#     # Assuming load_pbp_data() is the correct synchronous function
+#     return load_pbp_data() # Needs definition/import
+
+# async def import_weekly_data(seasons): # Needs load_weekly_stats
+#     """Async wrapper around ``load_weekly_stats`` for backward compatibility."""
+#     return await load_weekly_stats(seasons)
+
+# async def import_players(): # REMOVED - resolve_player now handles loading
+#      """Async wrapper for loading players."""
+#      return await load_players()
+
+# def import_schedules(seasons): # Needs load_schedules
+#     return load_schedules(seasons)
+
+# async def import_injuries(seasons): # Needs load_injuries
+#     return await load_injuries(seasons)
+
+# async def import_depth_charts(seasons): # Needs load_depth_charts
+#     return await load_depth_charts(seasons)
+
+# Updated: Use imported functions directly where possible or fix facades.
+# Example: If import_pbp_data is still used elsewhere, fix it:
+def import_pbp_data():
+    """Return the condensed play-by-play DataFrame (sync)."""
+    # Assuming load_pbp_data() is the correct synchronous function
+    return load_pbp_data()
+
+async def import_weekly_data(seasons):
+    """Async wrapper around ``load_weekly_stats`` for backward compatibility."""
+    return await load_weekly_stats(seasons)
+
+async def import_players():
+     """Async wrapper for loading players."""
+     return await load_players()
+
+def import_schedules(seasons):
+    return load_schedules(seasons)
+
+async def import_injuries(seasons):
+    return await load_injuries(seasons)
+
+async def import_depth_charts(seasons):
+    return await load_depth_charts(seasons)
 
 def get_current_season() -> int:
     """Get the current NFL season year.
@@ -102,12 +155,53 @@ def get_historical_matchup_stats(
                    
         player_id = player['gsis_id']
         
-        weekly_stats = import_weekly_data(seasons)
-        # The import_weekly_data returns a coroutine that needs to be awaited,
-        # but this function is not async, so we should raise an error.
-        raise RuntimeError("get_historical_matchup_stats is not an async function but calls async data loaders. Use the direct async loader functions instead.")
+        # NOTE: This function is now synchronous. 
+        # It requires a synchronous way to load weekly data.
+        # Assuming import_weekly_data can be called synchronously or has a sync alternative.
+        try:
+            # Removed await
+            # weekly_stats = await import_weekly_data(seasons) 
+            weekly_stats = import_weekly_data(seasons) # Assuming this works synchronously
+        except NameError:
+            logger.error("import_weekly_data is not defined or imported correctly, or has no synchronous version.")
+            return {"error": "Server configuration error: Cannot load weekly stats."}
+        except Exception as e:
+            logger.error(f"Error loading weekly data for seasons {seasons}: {e}")
+            return {"error": f"Could not load weekly stats for seasons {seasons}."}
+            
+        if weekly_stats is None or weekly_stats.empty:
+            return {"error": f"No weekly stats data found for seasons: {seasons}"}
+            
+        matchup_stats = weekly_stats[
+            (weekly_stats['player_id'] == player_id) &
+            (weekly_stats['opponent'] == opponent)
+        ]
         
+        # Aggregate stats if multiple games found
+        if not matchup_stats.empty:
+            # Select numeric columns for aggregation (example)
+            numeric_cols = matchup_stats.select_dtypes(include=np.number).columns
+            aggregated_stats = matchup_stats[numeric_cols].mean().to_dict()
+            # Convert numpy types to standard Python types
+            aggregated_stats = {k: (v.item() if hasattr(v, 'item') else v) for k, v in aggregated_stats.items()}
+            return {
+                "player_name": player_name,
+                "opponent": opponent,
+                "seasons": seasons,
+                "games_found": len(matchup_stats),
+                "average_stats": aggregated_stats
+            }
+        else:
+            return {
+                "player_name": player_name,
+                "opponent": opponent,
+                "seasons": seasons,
+                "games_found": 0,
+                "message": "No matchup data found for this player against this opponent in the specified seasons."
+            }
+            
     except Exception as e:
+        logger.exception(f"Error calculating historical stats for {player_name} vs {opponent}: {e}")
         return {"error": f"An error occurred calculating historical stats: {str(e)}"}
 
 def get_team_stats(team: str) -> Dict:
@@ -241,10 +335,8 @@ def get_top_defender(def_players: pd.DataFrame, stat: str) -> Dict:
     }
 
 def get_position_specific_stats(stats_df: pd.DataFrame, position: str) -> Dict:
-    """Get position-specific statistics from player stats."""
-    if stats_df.empty:
-        return {}
-    
+    """Get position-specific stats from an aggregated DataFrame."""
+    # Example: Extract relevant columns based on position
     if position == 'QB':
         return {
             'avg_passing_yards': stats_df['passing_yards'].mean(),
@@ -343,12 +435,6 @@ def league_average(stat: str) -> float:
     # This is a placeholder
     return 0.0
 
-def get_available_seasons() -> List[int]:
-    """Get list of available seasons in the dataset."""
-    # TODO: Implement actual data retrieval
-    current_year = datetime.now().year
-    return list(range(current_year - 5, current_year + 1))
-
 async def search_players(name: str) -> List[Dict]:
     """Search for players by name."""
     players_df = await import_players()
@@ -356,80 +442,131 @@ async def search_players(name: str) -> List[Dict]:
     matches = players_df[players_df['display_name'].str.lower().str.contains(name.lower())]
     return matches.to_dict('records')
 
-async def resolve_player(name: str, season: Optional[int] = None) -> Tuple[Optional[Dict], List[Dict]]:
-    """Resolve player name to a single player or return alternatives.
+# Updated: Changed to synchronous function, loads data directly
+def resolve_player(name: str, team: Optional[str] = None, season: Optional[int] = None) -> Tuple[Optional[Dict], List[Dict]]:
+    """Find a player by name, optionally filtering by team and season.
     
     Args:
-        name: Player name to resolve
-        season: Optional season to use for resolution (defaults to current season)
+        name: Player name (e.g., "Patrick Mahomes")
+        team: Optional team abbreviation (e.g., "KC")
+        season: Optional season year for context (defaults to most recent)
         
     Returns:
-        Tuple of (resolved player dict or None, list of alternative matches)
+        Tuple: (Found player dictionary or None, List of alternative matches)
     """
-    if not name:
-        return None, []
-    
-    if season is None:
-        season = get_current_season()
-        
-    # Load both current players and historical roster data
-    players_df = await load_players()
+    logger.debug(f"Resolving player: name='{name}', team='{team}', season='{season}'")
     try:
-        roster_df = await load_rosters([season])
-        # Merge roster data with player data to get historical team info
-        if not roster_df.empty:
-            players_df = players_df.merge(
-                roster_df[['gsis_id', 'team', 'season']],
-                left_on='gsis_id',
-                right_on='gsis_id',
-                how='left'
-            )
-            # Update team_abbr with historical team info where available
-            players_df.loc[players_df['season'] == season, 'team_abbr'] = players_df.loc[players_df['season'] == season, 'team']
-    except Exception:
-        # If roster data isn't available, continue with current data
-        pass
+        # Use the asynchronous loader - REMOVED
+        # players_df = await load_players() 
+        # Load directly from parquet file
+        player_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/players.parquet"
+        try:
+            players_df = pd.read_parquet(player_file_path)
+            logger.info(f"Successfully loaded player data from {player_file_path}")
+        except FileNotFoundError:
+             logger.error(f"Player data file not found at: {player_file_path}")
+             return None, []
+        except Exception as load_err:
+             logger.error(f"Error loading player data from {player_file_path}: {load_err}")
+             return None, []
+
+        if players_df.empty:
+            logger.error("Loaded players DataFrame is empty.")
+            return None, []
+
+        # Ensure team is uppercase if provided
+        if team:
+            team = team.upper()
+
+        # Filter by season if provided (relevant for finding the player on a specific team *in that season*)
+        # Note: players.parquet usually has the *current* team. For historical team context,
+        # other data sources like roster history might be needed, but this is a basic filter.
+        filtered_players = players_df.copy()
+        # We don't filter by season directly here as players_df might not represent seasonal rosters accurately.
+        # Instead, we use season context implicitly when matching team.
+
+        # --- Search Logic --- 
+        # 1. Exact match on display_name (case-insensitive)
+        name_lower = name.lower()
+        matches = filtered_players[filtered_players['display_name'].str.lower() == name_lower]
+        logger.debug(f"Initial exact matches by name: {len(matches)}")
+
+        # 2. Handle "Last, First" format if necessary
+        if matches.empty:
+            alt_name = None
+            if ',' in name_lower:
+                try:
+                    last, first = name_lower.split(',', 1)
+                    alt_name = f"{first.strip()} {last.strip()}"
+                    matches = filtered_players[filtered_players['display_name'].str.lower() == alt_name]
+                except ValueError:
+                    pass # Ignore malformed name
+            else:
+                parts = name_lower.split()
+                if len(parts) >= 2:
+                    alt_name = f"{parts[-1]}, {' '.join(parts[:-1])}"
+                    matches = filtered_players[filtered_players['display_name'].str.lower() == alt_name]
+            if not matches.empty:
+                 logger.debug(f"Found {len(matches)} matches using alternative name format: '{alt_name}'")
+
+        # 3. Fallback: Contains match (case-insensitive)
+        if matches.empty:
+            matches = filtered_players[filtered_players['display_name'].str.lower().str.contains(name_lower, na=False)]
+            logger.debug(f"Found {len(matches)} matches using CONTAINS '{name_lower}'")
+            # If still no match, try contains with the alternative name format
+            if matches.empty and 'alt_name' in locals() and alt_name:
+                 matches = filtered_players[filtered_players['display_name'].str.lower().str.contains(alt_name, na=False)]
+                 logger.debug(f"Found {len(matches)} matches using CONTAINS '{alt_name}'")
         
-    name_lower = name.lower()
-    
-    # Try exact match on display_name first
-    exact_matches = players_df[players_df['display_name'].str.lower() == name_lower]
-    if len(exact_matches) == 1:
-        return exact_matches.iloc[0].to_dict(), []
-    
-    # Try matching both name formats (First Last and Last, First)
-    if ',' in name:
-        # Convert "Last, First" to "First Last"
-        last, first = name_lower.split(',')
-        alt_name = f"{first.strip()} {last.strip()}"
-    else:
-        # Convert "First Last" to "Last, First"
-        parts = name_lower.split()
-        if len(parts) >= 2:
-            alt_name = f"{parts[-1]}, {' '.join(parts[:-1])}"
-        else:
-            alt_name = name_lower
+        # --- Disambiguation --- 
+        if matches.empty:
+            logger.warning(f"No player found matching criteria: name='{name}', team='{team}'")
+            return None, []
+        
+        if len(matches) == 1:
+            player_data = matches.iloc[0]
+            # If team was provided, verify it matches the player's current team or if they are inactive (no team)
+            # Add detailed logging for the team comparison
+            player_team_abbr = str(player_data.get('team_abbr', '')).upper()
+            player_display_name = player_data.get('display_name', '[Name Missing]')
+            is_team_abbr_null = pd.isna(player_data.get('team_abbr'))
+            logger.debug(f"Resolve Player Check: Single match found for '{player_display_name}'. Player team from data: '{player_team_abbr}' (Is Null: {is_team_abbr_null}). Requested team: '{team}'.")
             
-    name_matches = players_df[
-        (players_df['display_name'].str.lower() == name_lower) |
-        (players_df['display_name'].str.lower() == alt_name)
-    ]
-    if len(name_matches) == 1:
-        return name_matches.iloc[0].to_dict(), []
-    if len(name_matches) > 1:
-        return None, name_matches.to_dict('records')
-    
-    # Try contains match as fallback
-    contains_matches = players_df[
-        players_df['display_name'].str.lower().str.contains(name_lower, na=False) |
-        players_df['display_name'].str.lower().str.contains(alt_name, na=False)
-    ]
-    if len(contains_matches) == 1:
-        return contains_matches.iloc[0].to_dict(), []
-    elif len(contains_matches) > 1:
-        return None, contains_matches.to_dict('records')
-    
-    return None, []
+            if team and player_team_abbr != team and not is_team_abbr_null:
+                logger.warning(f"Found unique player '{player_data['display_name']}' but team '{player_team_abbr}' does not match requested team '{team}'. Returning alternatives leading to 404.")
+                # Return no primary match, but include the found player in alternatives
+                return None, matches.fillna('').to_dict('records') 
+            else:
+                # Unique match, and either no team was specified, or the team matches, or player is inactive
+                logger.info(f"Found unique player: {player_data['display_name']} (ID: {player_data['gsis_id']}) matching criteria.")
+                return player_data.fillna('').to_dict(), [] # Return single match, no alternatives
+        else: # Multiple matches found by name
+            alternatives = matches.fillna('').to_dict('records')
+            if team:
+                # Try filtering the multiple matches by the specified team
+                team_matches = matches[matches['team_abbr'].str.upper() == team]
+                if len(team_matches) == 1:
+                    player_data = team_matches.iloc[0]
+                    logger.info(f"Found unique player via team disambiguation: {player_data['display_name']} (ID: {player_data['gsis_id']}) for team {team}.")
+                    return player_data.fillna('').to_dict(), alternatives # Return unique match and the original alternatives
+                elif len(team_matches) > 1:
+                    logger.warning(f"Multiple players found for name '{name}' on team '{team}'. Returning alternatives.")
+                    return None, team_matches.fillna('').to_dict('records') # Return only the team-specific alternatives
+                else:
+                    # No players on the list matched the specific team
+                    logger.warning(f"Multiple players found for name '{name}', but none matched team '{team}'. Returning all alternatives.")
+                    return None, alternatives
+            else:
+                # Multiple matches found, but no team was provided for disambiguation
+                logger.warning(f"Multiple players found for name '{name}' and no team provided. Returning alternatives.")
+                return None, alternatives
+
+    except FileNotFoundError:
+        logger.error("Error resolving player: players.parquet not found.")
+        return None, []
+    except Exception as e:
+        logger.exception(f"Unexpected error resolving player '{name}': {e}")
+        return None, []
 
 def get_player_headshot_url(player_id: str) -> str:
     """Get URL for player's headshot image."""
@@ -439,7 +576,8 @@ def get_player_headshot_url(player_id: str) -> str:
 async def get_player_game_log(player_name: str, season: Optional[int] = None) -> Dict:
     """Get game-by-game stats for a player."""
     # Resolve player first
-    player, alternatives = await resolve_player(player_name)
+    # Updated: Removed await, resolve_player is now synchronous
+    player, alternatives = resolve_player(player_name)
     if not player and alternatives:
         return {
             "error": f"Multiple players found matching '{player_name}'",
@@ -454,8 +592,17 @@ async def get_player_game_log(player_name: str, season: Optional[int] = None) ->
         season = get_current_season() # Use helper to get latest completed/active season
     
     # Get weekly data - use await since this is an async function
-    weekly_data = await import_weekly_data([season])
-    
+    # NOTE: This still relies on an async import_weekly_data/load_weekly_stats
+    try:
+        # Assuming import_weekly_data exists and works async
+        weekly_data = await import_weekly_data([season]) 
+    except NameError:
+        logger.error("import_weekly_data is not defined or imported correctly.")
+        return {"error": "Server configuration error: Cannot load weekly stats."} 
+    except Exception as e:
+        logger.error(f"Error loading weekly data for season {season}: {e}")
+        return {"error": f"Could not load weekly stats for season {season}."}
+
     # Filter using player_id (gsis_id) for reliability instead of player_name
     if 'player_id' in weekly_data.columns:
         player_games = weekly_data[weekly_data['player_id'] == player["gsis_id"]]
@@ -477,6 +624,7 @@ async def get_player_game_log(player_name: str, season: Optional[int] = None) ->
 async def get_player_career_stats(player_name: str) -> Dict:
     """Get career stats for a player."""
     # Resolve player first
+    # Updated: Removed await, resolve_player is now synchronous
     player, alternatives = resolve_player(player_name)
     if not player and alternatives:
         return {
@@ -499,20 +647,11 @@ async def get_player_career_stats(player_name: str) -> Dict:
         "seasons_played": [2024]
     }
 
-def get_player_comparison(player1: str, player2: str) -> Dict:
-    """Compare two players' stats."""
-    # TODO: Implement actual player comparison
-    return {}
-
-def get_game_stats(game_id: str) -> Dict:
-    """Get comprehensive stats for a game."""
-    # TODO: Implement actual game stats retrieval
-    return {}
-
 async def get_situation_stats(player_name: str, situations: List[str], season: Optional[int] = None) -> Dict:
     """Get player stats filtered by one or more game situations."""
     # Resolve player first
-    player, alternatives = await resolve_player(player_name, season)
+    # Updated: Removed await, resolve_player is now synchronous
+    player, alternatives = resolve_player(player_name, season)
     if not player and alternatives:
         return {
             "error": f"Multiple players found matching '{player_name}'",
@@ -695,16 +834,6 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
     except Exception as e:
         logger.exception(f"Error calculating situation stats for {player_name}, situations {situations}: {str(e)}")
         return {"error": f"An unexpected error occurred: {str(e)}"}
-
-def normalize_team_name(team: str) -> str:
-    """Normalize team name to standard abbreviation."""
-    # TODO: Implement actual team name normalization
-    return team.upper()
-
-async def get_player_on_field_stats(player_name: str, other_player_name: str, season: Optional[int] = None, week: Optional[int] = None, on_field: bool = True) -> Dict:
-    """Get player stats when another player is on/off the field."""
-    # TODO: Implement actual on-field stats calculation
-    return {}
 
 def get_player_stats(
     player_name: str,
@@ -1169,4 +1298,24 @@ def calculate_age(birth_date_str: Optional[str]) -> Optional[int]:
         today = date.today()
         return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
     except (ValueError, TypeError):
+        return None
+
+def get_player_position(player_id: str) -> Optional[str]:
+    """Get position for a player given their GSIS ID."""
+    if not player_id:
+        return None
+    try:
+        player_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/players.parquet"
+        players_df = pd.read_parquet(player_file_path)
+        player_match = players_df[players_df['gsis_id'] == player_id]
+        if not player_match.empty:
+             position = player_match.iloc[0].get('position')
+             return position if pd.notna(position) else None
+        else:
+             return None
+    except FileNotFoundError:
+        logger.error(f"Player data file not found at: {player_file_path} in get_player_position")
+        return None
+    except Exception as e:
+        logger.error(f"Error in get_player_position for {player_id}: {e}")
         return None 

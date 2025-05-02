@@ -7,10 +7,6 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
 
-from ..stats_helpers import (
-    get_game_stats
-)
-
 from fastapi_cache.decorator import cache
 
 # Set up logging

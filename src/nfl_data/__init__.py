@@ -1,54 +1,15 @@
-"""NFL Data API package."""
+"""NFL Data API package.
 
-from .data_import import (
-    import_pbp_data,
-    import_weekly_data,
-    import_players,
-    import_schedules,
-    import_injuries,
-    import_depth_charts
-)
+Only expose the FastAPI application instance so ASGI servers (e.g. Uvicorn,
+Gunicorn) can import ``nfl_data.app`` or ``nfl_data.main:app`` directly.  All
+other helpers are now accessed through their respective sub-modules and no
+longer re-exported here to keep the public surface minimal and avoid stale
+symbols.
+"""
 
-from .stats_helpers import (
-    get_defensive_stats,
-    get_historical_matchup_stats,
-    get_team_stats,
-    analyze_key_matchups,
-    analyze_player_matchup,
-    get_player_stats,
-    get_player_game_log,
-    get_player_career_stats,
-    get_player_comparison,
-    get_game_stats,
-    get_situation_stats,
-    get_player_on_field_stats,
-    resolve_player,
-    get_position_specific_stats_from_pbp
-)
+# Public ASGI application -----------------------------------------------------------------------------------------
+from .main import app  # noqa: F401
 
-from .main import app
-
-__all__ = [
-    'import_pbp_data',
-    'import_weekly_data',
-    'import_players',
-    'import_schedules',
-    'import_injuries',
-    'import_depth_charts',
-    'get_defensive_stats',
-    'get_historical_matchup_stats',
-    'analyze_key_matchups',
-    'analyze_player_matchup',
-    'get_player_stats',
-    'get_player_game_log',
-    'get_player_career_stats',
-    'get_player_comparison',
-    'get_game_stats',
-    'get_situation_stats',
-    'get_player_on_field_stats',
-    'get_player_on_off_impact',
-    'get_qb_advanced_stats',
-    'get_future_schedule_analysis',
-    'get_game_outlook',
-    'app'
-]
+# Define the explicit re-export list so ``from nfl_data import *`` only exposes
+# the FastAPI application.
+__all__ = ["app"]

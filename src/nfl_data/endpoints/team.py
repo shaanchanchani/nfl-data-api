@@ -9,18 +9,6 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from ..stats_helpers import (
-    get_defensive_stats,
-    get_team_stats,
-    analyze_key_matchups,
-    normalize_team_name
-)
-
-from ..data_loader import (
-    load_depth_charts, 
-    load_injuries
-)
-
 from fastapi_cache.decorator import cache
 
 # Set up logging
