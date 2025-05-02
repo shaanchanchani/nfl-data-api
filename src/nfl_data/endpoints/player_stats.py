@@ -2127,27 +2127,38 @@ def get_top_players(
     # Load play-by-play data
     pbp = pd.read_parquet(pbp_path)
     
+    # Define valid positions and their mappings
+    QB_POSITIONS = ['QB', 'QUARTERBACK']
+    RB_POSITIONS = ['RB', 'HB', 'FB', 'RUNNINGBACK', 'HALFBACK', 'FULLBACK']
+    WR_POSITIONS = ['WR', 'WIDERECEIVER']
+    TE_POSITIONS = ['TE', 'TIGHTEND']
+    position_upper = position.upper()
+    
     # Default sort columns by position if not specified
     if sort_by is None:
-        if position.upper() in ['QB', 'QUARTERBACK']:
+        if position_upper in QB_POSITIONS:
             sort_by = 'epa_per_dropback'
-        elif position.upper() in ['RB', 'HB', 'FB', 'RUNNINGBACK', 'HALFBACK', 'FULLBACK']:
+        elif position_upper in RB_POSITIONS:
             sort_by = 'rushing_yards'
-        elif position.upper() in ['WR', 'TE', 'WIDERECEIVER', 'TIGHTEND']:
+        elif position_upper in WR_POSITIONS or position_upper in TE_POSITIONS:
             sort_by = 'receiving_yards'
     
     # Default minimum thresholds by position if not specified
     if min_threshold is None:
-        if position.upper() in ['QB', 'QUARTERBACK']:
+        if position_upper in QB_POSITIONS:
             min_threshold = {'qb_dropback': 100}
-        elif position.upper() in ['RB', 'HB', 'FB', 'RUNNINGBACK', 'HALFBACK', 'FULLBACK']:
+        elif position_upper in RB_POSITIONS:
             min_threshold = {'carries': 50}
-        elif position.upper() in ['WR', 'TE', 'WIDERECEIVER', 'TIGHTEND']:
+        elif position_upper in WR_POSITIONS or position_upper in TE_POSITIONS:
             min_threshold = {'targets': 30}
     
     # Calculate stats for the specific position
     position_stats = None
-    if position.upper() in ['QB', 'QUARTERBACK']:
+    
+    # Standardized position for return
+    standardized_position = position
+    
+    if position_upper in QB_POSITIONS:
         position_stats = calculate_qb_stats(
             pbp=pbp,
             aggregation_type=aggregation_type,
@@ -2159,7 +2170,8 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
-    elif position.upper() in ['RB', 'HB', 'FB', 'RUNNINGBACK', 'HALFBACK', 'FULLBACK']:
+        standardized_position = "QB"
+    elif position_upper in RB_POSITIONS:
         position_stats = calculate_rb_stats(
             pbp=pbp,
             aggregation_type=aggregation_type,
@@ -2171,7 +2183,8 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
-    elif position.upper() in ['WR', 'WIDERECEIVER']:
+        standardized_position = "RB"
+    elif position_upper in WR_POSITIONS:
         position_stats = calculate_wr_stats(
             pbp=pbp,
             aggregation_type=aggregation_type,
@@ -2183,7 +2196,8 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
-    elif position.upper() in ['TE', 'TIGHTEND']:
+        standardized_position = "WR"
+    elif position_upper in TE_POSITIONS:
         # For TEs, we use the same function as WRs but may apply different thresholds
         position_stats = calculate_wr_stats(
             pbp=pbp,
@@ -2196,6 +2210,11 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
+        standardized_position = "TE"
+    else:
+        # If position is not recognized, raise a meaningful error
+        valid_positions = QB_POSITIONS + RB_POSITIONS + WR_POSITIONS + TE_POSITIONS
+        raise ValueError(f"Unsupported position: '{position}'. Supported positions are: {', '.join(sorted(set(valid_positions)))}")
     
     if position_stats is None or len(position_stats) == 0:
         print(f"No stats found for position: {position}")

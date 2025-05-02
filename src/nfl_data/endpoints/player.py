@@ -316,28 +316,46 @@ async def get_top_players_endpoint(
                     except ValueError:
                         logger.warning(f"Could not parse threshold value '{pair}'. Skipping.")
 
-        leaderboard_df = get_top_players(
-            position=position,
-            n=n,
-            sort_by=sort_by,
-            min_threshold=threshold_dict,
-            ascending=ascending,
-            aggregation_type=aggregation_type.value,
-            seasons=seasons_parsed,
-            week=week,
-            season_type=season_type,
-            redzone_only=redzone_only,
-            include_player_details=include_player_details,
-            downs=downs_parsed,
-            opponent_team=opponent_team,
-            score_differential_range=score_diff_parsed,
-        )
+        try:
+            leaderboard_df = get_top_players(
+                position=position,
+                n=n,
+                sort_by=sort_by,
+                min_threshold=threshold_dict,
+                ascending=ascending,
+                aggregation_type=aggregation_type.value,
+                seasons=seasons_parsed,
+                week=week,
+                season_type=season_type,
+                redzone_only=redzone_only,
+                include_player_details=include_player_details,
+                downs=downs_parsed,
+                opponent_team=opponent_team,
+                score_differential_range=score_diff_parsed,
+            )
+        except ValueError as ve:
+            # Handle specific error for unsupported position
+            if "Unsupported position" in str(ve):
+                logger.warning(f"Invalid position requested: {position}")
+                raise HTTPException(status_code=400, detail=str(ve))
+            # Handle other ValueError cases (like invalid sort_by column)
+            raise HTTPException(status_code=400, detail=str(ve))
 
+        if leaderboard_df.empty:
+            return {
+                "position": position,
+                "leaderboard": [],
+                "message": f"No players found matching the criteria for position '{position}'. Try adjusting filters."
+            }
+            
         records = [_sanitize_record(rec) for rec in leaderboard_df.to_dict(orient="records")]
         return {
             "position": position,
             "leaderboard": records,
         }
+    except HTTPException as he:
+        # Re-raise HTTP exceptions to preserve status code and message
+        raise he
     except Exception as e:
         logger.exception(f"Error generating top players leaderboard: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating leaderboard: {e}")
