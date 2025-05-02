@@ -112,15 +112,91 @@ async def main():
     else:
         print("No play-by-play data was processed.")
 
-    # --- Download and save players data (remains the same) ---
+    # --- Download and save players data with position correction ---
     players_url = f"{NFLVERSE_BASE_URL}/players/players.parquet"
     players_file = CACHE_DIR / "players.parquet"
     try:
         print("\nDownloading players data...")
         download_parquet(players_url, players_file)
-        print(f"Saved players data to {players_file}")
+        
+        # Load, fix positions, and resave
+        print("Processing player data to fix any position issues...")
+        players_df = pd.read_parquet(players_file)
+        
+        # Print some diagnostics
+        print(f"Total players: {len(players_df)}")
+        print(f"NULL positions: {players_df['position'].isna().sum()}")
+        
+        # Fill null positions from position_group if available
+        null_positions = players_df['position'].isna()
+        if null_positions.any():
+            print(f"Found {null_positions.sum()} players with NULL positions")
+            # For players with null position but valid position_group, use position_group
+            has_position_group = ~players_df['position_group'].isna()
+            to_fix = null_positions & has_position_group
+            if to_fix.any():
+                players_df.loc[to_fix, 'position'] = players_df.loc[to_fix, 'position_group']
+                print(f"Fixed {to_fix.sum()} NULL positions using position_group values")
+        
+        # Check for position mismatches - specifically QBs marked as 'P'
+        position_corrections = {}
+        
+        # Check for known QBs incorrectly labeled
+        qb_keywords = ["quarterback", "passer", "qb"]
+        possible_qb_mask = players_df["display_name"].str.lower().apply(
+            lambda name: any(keyword in name.lower() for keyword in qb_keywords)
+        )
+        qb_check_df = players_df[possible_qb_mask & (players_df["position"] == "P")]
+        
+        if len(qb_check_df) > 0:
+            print(f"WARNING: Found {len(qb_check_df)} players with QB-like names but position = 'P'")
+            print(f"Sample: {qb_check_df[['gsis_id', 'display_name', 'position', 'position_group']].head()}")
+        
+        # Apply corrections if needed
+        known_qbs = [
+            "00-0010346",  # Peyton Manning
+            # Add more known QB IDs that need correction
+        ]
+        
+        # Identify anomalies by checking if position doesn't match position_group
+        anomalies = players_df[
+            (players_df["position"] != players_df["position_group"]) & 
+            (players_df["position_group"] == "QB") & 
+            (players_df["position"] != "QB")
+        ]
+        if len(anomalies) > 0:
+            print(f"Found {len(anomalies)} players with position_group='QB' but position != 'QB'")
+            print(f"Sample: {anomalies[['gsis_id', 'display_name', 'position', 'position_group']].head()}")
+            
+            # Fix these anomalies by setting position=position_group
+            players_df.loc[
+                (players_df["position_group"] == "QB") & (players_df["position"] != "QB"),
+                "position"
+            ] = "QB"
+        
+        # Apply known corrections for specific players
+        for qb_id in known_qbs:
+            idx = players_df["gsis_id"] == qb_id
+            if idx.any():
+                old_pos = players_df.loc[idx, "position"].iloc[0]
+                players_df.loc[idx, "position"] = "QB"
+                print(f"Corrected position for {players_df.loc[idx, 'display_name'].iloc[0]} from {old_pos} to QB")
+                
+        # Double-check there are no remaining obvious problems with QBs
+        remaining_issues = players_df[
+            possible_qb_mask & 
+            (players_df["position"] != "QB") & 
+            ~players_df["position"].isna()
+        ]
+        if len(remaining_issues) > 0:
+            print(f"WARNING: Still found {len(remaining_issues)} potential QB players with non-QB positions")
+            print(f"Sample: {remaining_issues[['gsis_id', 'display_name', 'position', 'position_group']].head()}")
+        
+        # Save the corrected data
+        players_df.to_parquet(players_file)
+        print(f"Saved corrected players data to {players_file}")
     except Exception as e:
-        print(f"Error downloading players data: {e}")
+        print(f"Error processing players data: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main()) 

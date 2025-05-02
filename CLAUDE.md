@@ -1,633 +1,435 @@
-NFL Data API
- 0.1.0 
-OAS 3.1
-/openapi.json
-API for accessing and analyzing NFL data
-
-default
-
-
-GET
-/api/{team}/{name}/info
-Get Player Info
-
-
-GET
-/api/player/{name}/stats
-Get Player Stats Endpoint
-
-
-GET
-/api/player/{name}/headshot
-Get Headshot
-
-
-GET
-/api/player/{name}/gamelog
-Get Gamelog Endpoint
-
-
-GET
-/api/players/top
-Get Top Players Endpoint
-
-Return a leaderboard of the top N players for a given position/metric.
-
-Parameters
-Cancel
-Name	Description
-position
-string
-(query)
-Player position to analyse
-
-QB
-n
-integer
-(query)
-maximum: 100
-minimum: 1
-Number of players to return
-
-10
-sort_by
-(query)
-Column to sort by. If omitted a sensible default for the position is used.
-
-sort_by
-min_threshold
-(query)
-Comma-sep key:value pairs e.g. 'carries:100' to filter players
-
-'carries:100'
-ascending
-boolean
-(query)
-Sort ascending instead of descending
-
-
-false
-seasons
-(query)
-Comma-separated list of seasons
-
-2015,2016,2017,2020,2021,2022,2023,2024
-week
-(query)
-Filter by week (only when aggregation_type='week')
-
-week
-season_type
-string
-(query)
-Season type filter (REG, POST, or REG+POST)
-
-REG
-redzone_only
-boolean
-(query)
-If true, only include red-zone plays
-
-
-false
-aggregation_type
-string
-(query)
-Aggregation type for underlying calculation
-
-
-season
-include_player_details
-boolean
-(query)
-Whether to include detailed player info columns
-
-
-true
-downs
-(query)
-Comma-separated list of downs to filter by
-
-downs
-opponent_team
-(query)
-Filter by opponent team
-
-opponent_team
-score_differential_range
-(query)
-Score diff range e.g. '-10,10'
-
-score_differential_range
-Execute
-Clear
-Responses
-Curl
-
 curl -X 'GET' \
-  'http://0.0.0.0:8080/api/players/top?position=QB&n=10&min_threshold=%27carries%3A100%27&ascending=false&seasons=2015%2C2016%2C2017%2C2020%2C2021%2C2022%2C2023%2C2024&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true' \
+  'http://0.0.0.0:8080/api/players/top?position=QB&n=10&ascending=false&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true' \
   -H 'accept: application/json'
-Request URL
-http://0.0.0.0:8080/api/players/top?position=QB&n=10&min_threshold=%27carries%3A100%27&ascending=false&seasons=2015%2C2016%2C2017%2C2020%2C2021%2C2022%2C2023%2C2024&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true
-Server response
-Code	Details
-200	
-Response body
-Download
+
 {
   "position": "QB",
   "leaderboard": [
     {
-      "season": 2017,
-      "player_id": "00-0031079",
-      "team": "CHI",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 38,
-      "passing_tds": 1,
-      "passing_interceptions": 0,
-      "qb_epa": 6.29359512636438,
-      "passing_cpoe": 32.90131092071533,
-      "epa_per_dropback": 6.29359512636438,
-      "passing_air_yards": 7,
-      "passing_yards_after_catch": 31,
-      "pacr": 5.428571428571429,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 5.52,
-      "season_type": "REG",
-      "player_name": "Pat O'Donnell",
-      "player_first_name": "Patrick",
-      "player_last_name": "O'Donnell",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "Miami",
-      "player_height": 76,
-      "player_weight": 212,
-      "player_birth_date": "1991-02-22",
-      "player_draft_club": "CHI",
-      "player_draft_number": 191,
-      "player_team_abbr": "SF",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/kputu02pppmvb69bkdfg"
-    },
-    {
-      "season": 2016,
-      "player_id": "00-0030140",
-      "team": "WAS",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 31,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 5.162058001733385,
-      "passing_cpoe": 76.59696042537689,
-      "epa_per_dropback": 5.162058001733385,
-      "passing_air_yards": 29,
-      "passing_yards_after_catch": 2,
-      "pacr": 1.0689655172413792,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 1.24,
-      "season_type": "REG",
-      "player_name": "Tress Way",
-      "player_first_name": "Tress",
-      "player_last_name": "Way",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "Oklahoma",
-      "player_height": 73,
-      "player_weight": 220,
-      "player_birth_date": "1990-04-18",
-      "player_draft_club": null,
-      "player_draft_number": null,
-      "player_team_abbr": "WAS",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/n5nwpxqj5ex2pc2c2phx"
-    },
-    {
-      "season": 2021,
-      "player_id": "00-0035544",
-      "team": "DET",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 75,
-      "passing_tds": 1,
-      "passing_interceptions": 0,
-      "qb_epa": 5.069598037283868,
-      "passing_cpoe": 50.08513629436493,
-      "epa_per_dropback": 5.069598037283868,
-      "passing_air_yards": 24,
-      "passing_yards_after_catch": 51,
-      "pacr": 3.125,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 7,
-      "season_type": "REG",
-      "player_name": "Tom Kennedy",
-      "player_first_name": "Thomas",
-      "player_last_name": "Kennedy",
-      "player_position": "WR",
-      "player_position_group": "WR",
-      "player_college_name": "Bryant",
-      "player_height": 70,
-      "player_weight": 194,
-      "player_birth_date": "1996-07-29",
-      "player_draft_club": null,
-      "player_draft_number": null,
-      "player_team_abbr": "DET",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/i4s3x6uwpru9p2czwode"
-    },
-    {
-      "season": 2016,
-      "player_id": "00-0027145",
+      "season": 2004,
+      "player_id": "00-0010346",
+      "player_name": "Peyton Manning",
       "team": "IND",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 35,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 5.0364618439925835,
-      "passing_cpoe": 53.741514682769775,
-      "epa_per_dropback": 5.0364618439925835,
-      "passing_air_yards": 17,
-      "passing_yards_after_catch": 18,
-      "pacr": 2.0588235294117645,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 1.4000000000000001,
-      "season_type": "REG",
-      "player_name": "Pat McAfee",
-      "player_first_name": "Pat",
-      "player_last_name": "McAfee",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "West Virginia",
-      "player_height": 73,
-      "player_weight": 233,
-      "player_birth_date": "1987-05-02",
-      "player_draft_club": "IND",
-      "player_draft_number": 222,
-      "player_team_abbr": "IND",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/giz54xrdfqrdu9nezfee"
-    },
-    {
-      "season": 2017,
-      "player_id": "00-0028954",
-      "team": "PIT",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 44,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 4.970928155875299,
-      "passing_cpoe": 67.89935827255249,
-      "epa_per_dropback": 4.970928155875299,
-      "passing_air_yards": 23,
-      "passing_yards_after_catch": 21,
-      "pacr": 1.9130434782608696,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 1.76,
-      "season_type": "REG",
-      "player_name": "Robert Golden",
-      "player_first_name": "Robert",
-      "player_last_name": "Golden",
-      "player_position": "SS",
-      "player_position_group": "DB",
-      "player_college_name": "Arizona",
-      "player_height": 71,
-      "player_weight": 202,
-      "player_birth_date": "1990-09-13",
-      "player_draft_club": null,
-      "player_draft_number": null,
-      "player_team_abbr": "KC",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/x34qsxf2ita6cddyhped"
-    },
-    {
-      "season": 2016,
-      "player_id": "00-0030663",
-      "team": "NO",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 50,
-      "passing_tds": 1,
-      "passing_interceptions": 0,
-      "qb_epa": 4.872772316914052,
-      "passing_cpoe": 61.50420606136322,
-      "epa_per_dropback": 4.872772316914052,
-      "passing_air_yards": 22,
-      "passing_yards_after_catch": 28,
-      "pacr": 2.272727272727273,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 6,
-      "season_type": "REG",
-      "player_name": "Willie Snead",
-      "player_first_name": "Willie",
-      "player_last_name": "Snead",
-      "player_position": "WR",
-      "player_position_group": "WR",
-      "player_college_name": "Ball State",
-      "player_height": 71,
-      "player_weight": 205,
-      "player_birth_date": "1992-10-17",
-      "player_draft_club": null,
-      "player_draft_number": null,
-      "player_team_abbr": "MIA",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/fr5xckiwhguuaishnbju"
-    },
-    {
-      "season": 2017,
-      "player_id": "00-0024417",
-      "team": "BAL",
-      "position": "QB",
-      "games_played": 2,
-      "attempts": 2,
-      "completions": 2,
-      "completion_pct": 100,
-      "passing_yards": 38,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 9.42508688842645,
-      "passing_cpoe": 57.31978118419647,
-      "epa_per_dropback": 4.712543444213225,
-      "passing_air_yards": 32,
-      "passing_yards_after_catch": 6,
-      "pacr": 1.1875,
-      "passing_first_downs": 2,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 2,
-      "fantasy_points": 1.52,
-      "season_type": "REG",
-      "player_name": "Sam Koch",
-      "player_first_name": "Sam",
-      "player_last_name": "Koch",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "Nebraska",
-      "player_height": 73,
-      "player_weight": 222,
-      "player_birth_date": "1982-08-13",
-      "player_draft_club": "BAL",
-      "player_draft_number": 203,
-      "player_team_abbr": "BAL",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/dw34lcf6qit1i1knjhpv"
-    },
-    {
-      "season": 2017,
-      "player_id": "00-0029632",
-      "team": "ATL",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 51,
-      "passing_tds": 1,
-      "passing_interceptions": 0,
-      "qb_epa": 4.45806786720641,
-      "passing_cpoe": 75.77771842479706,
-      "epa_per_dropback": 4.45806786720641,
-      "passing_air_yards": 51,
+      "position": "P",
+      "games_played": 16,
+      "attempts": 497,
+      "completions": 336,
+      "completion_pct": 67.6056338028169,
+      "passing_yards": 4456,
+      "passing_tds": 49,
+      "passing_interceptions": 10,
+      "qb_epa": 221.4964524093534,
+      "passing_cpoe": null,
+      "epa_per_dropback": 0.43601663860108936,
+      "passing_air_yards": 0,
       "passing_yards_after_catch": 0,
-      "pacr": 1,
-      "passing_first_downs": 1,
+      "pacr": null,
+      "passing_first_downs": 232,
       "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 6.04,
+      "sacks_suffered": 13,
+      "passing_fumbles": 8,
+      "passing_fumbles_lost": 3,
+      "qb_dropback": 508,
+      "fantasy_points": 348.24,
       "season_type": "REG",
-      "player_name": "Mohamed Sanu",
-      "player_first_name": "Mohamed",
-      "player_last_name": "Sanu",
-      "player_position": "WR",
-      "player_position_group": "WR",
-      "player_college_name": "Rutgers",
+      "player_first_name": "Peyton",
+      "player_last_name": "Manning",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Tennessee",
+      "player_height": 77,
+      "player_weight": 230,
+      "player_birth_date": "1976-03-24",
+      "player_draft_club": "IND",
+      "player_draft_number": 1,
+      "player_team_abbr": "DEN",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+    },
+    {
+      "season": 2007,
+      "player_id": "00-0019596",
+      "player_name": "Tom Brady",
+      "team": "NE",
+      "position": "P",
+      "games_played": 16,
+      "attempts": 578,
+      "completions": 398,
+      "completion_pct": 68.85813148788927,
+      "passing_yards": 4678,
+      "passing_tds": 50,
+      "passing_interceptions": 8,
+      "qb_epa": 250.0281579677097,
+      "passing_cpoe": 7.8124111505238325,
+      "epa_per_dropback": 0.4174092787440896,
+      "passing_air_yards": 4746,
+      "passing_yards_after_catch": 2045,
+      "pacr": 0.9856721449641803,
+      "passing_first_downs": 240,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 21,
+      "passing_fumbles": 10,
+      "passing_fumbles_lost": 4,
+      "qb_dropback": 599,
+      "fantasy_points": 363.12,
+      "season_type": "REG",
+      "player_first_name": "Tom",
+      "player_last_name": "Brady",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Michigan",
+      "player_height": 76,
+      "player_weight": 225,
+      "player_birth_date": "1977-08-03",
+      "player_draft_club": "NE",
+      "player_draft_number": 199,
+      "player_team_abbr": "TB",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/q7dpdlxyu5rs05rgh1le"
+    },
+    {
+      "season": 2011,
+      "player_id": "00-0023459",
+      "player_name": "Aaron Rodgers",
+      "team": "GB",
+      "position": "P",
+      "games_played": 15,
+      "attempts": 501,
+      "completions": 342,
+      "completion_pct": 68.26347305389221,
+      "passing_yards": 4417,
+      "passing_tds": 45,
+      "passing_interceptions": 6,
+      "qb_epa": 223.36792698807292,
+      "passing_cpoe": 8.81097502136433,
+      "epa_per_dropback": 0.4167312070673002,
+      "passing_air_yards": 4549,
+      "passing_yards_after_catch": 2015,
+      "pacr": 0.9709826335458343,
+      "passing_first_downs": 208,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 36,
+      "passing_fumbles": 5,
+      "passing_fumbles_lost": 0,
+      "qb_dropback": 536,
+      "fantasy_points": 344.68,
+      "season_type": "REG",
+      "player_first_name": "Aaron",
+      "player_last_name": "Rodgers",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "California",
       "player_height": 74,
-      "player_weight": 215,
-      "player_birth_date": "1989-08-22",
-      "player_draft_club": "CIN",
-      "player_draft_number": 83,
-      "player_team_abbr": "MIA",
-      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/a6loroqhta6g65aqnsrk"
+      "player_weight": 225,
+      "player_birth_date": "1983-12-02",
+      "player_draft_club": "GB",
+      "player_draft_number": 24,
+      "player_team_abbr": "NYJ",
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to"
+    },
+    {
+      "season": 2011,
+      "player_id": "00-0023459",
+      "player_name": "Aaron Rodgers",
+      "team": "GB",
+      "position": "P",
+      "games_played": 15,
+      "attempts": 501,
+      "completions": 342,
+      "completion_pct": 68.26347305389221,
+      "passing_yards": 4417,
+      "passing_tds": 45,
+      "passing_interceptions": 6,
+      "qb_epa": 223.36792698807292,
+      "passing_cpoe": 8.81097502136433,
+      "epa_per_dropback": 0.4167312070673002,
+      "passing_air_yards": 4549,
+      "passing_yards_after_catch": 2015,
+      "pacr": 0.9709826335458343,
+      "passing_first_downs": 208,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 36,
+      "passing_fumbles": 5,
+      "passing_fumbles_lost": 0,
+      "qb_dropback": 536,
+      "fantasy_points": 344.68,
+      "season_type": "REG",
+      "player_first_name": "Aaron",
+      "player_last_name": "Rodgers",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "California",
+      "player_height": 74,
+      "player_weight": 225,
+      "player_birth_date": "1983-12-02",
+      "player_draft_club": "GB",
+      "player_draft_number": 24,
+      "player_team_abbr": "NYJ",
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/jdcb4nomlc4rd6k5l6to"
+    },
+    {
+      "season": 2013,
+      "player_id": "00-0010346",
+      "player_name": "Peyton Manning",
+      "team": "DEN",
+      "position": "P",
+      "games_played": 16,
+      "attempts": 659,
+      "completions": 450,
+      "completion_pct": 68.28528072837632,
+      "passing_yards": 5357,
+      "passing_tds": 55,
+      "passing_interceptions": 10,
+      "qb_epa": 262.2390975704832,
+      "passing_cpoe": 6.38538162688232,
+      "epa_per_dropback": 0.3873546492917034,
+      "passing_air_yards": 5169,
+      "passing_yards_after_catch": 2584,
+      "pacr": 1.0363706713097312,
+      "passing_first_downs": 289,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 18,
+      "passing_fumbles": 9,
+      "passing_fumbles_lost": 5,
+      "qb_dropback": 677,
+      "fantasy_points": 404.28,
+      "season_type": "REG",
+      "player_first_name": "Peyton",
+      "player_last_name": "Manning",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Tennessee",
+      "player_height": 77,
+      "player_weight": 230,
+      "player_birth_date": "1976-03-24",
+      "player_draft_club": "IND",
+      "player_draft_number": 1,
+      "player_team_abbr": "DEN",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+    },
+    {
+      "season": 2005,
+      "player_id": "00-0010346",
+      "player_name": "Peyton Manning",
+      "team": "IND",
+      "position": "P",
+      "games_played": 16,
+      "attempts": 453,
+      "completions": 305,
+      "completion_pct": 67.3289183222958,
+      "passing_yards": 3666,
+      "passing_tds": 28,
+      "passing_interceptions": 10,
+      "qb_epa": 179.48990499082808,
+      "passing_cpoe": null,
+      "epa_per_dropback": 0.3810826008297836,
+      "passing_air_yards": 0,
+      "passing_yards_after_catch": 0,
+      "pacr": null,
+      "passing_first_downs": 197,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 17,
+      "passing_fumbles": 5,
+      "passing_fumbles_lost": 2,
+      "qb_dropback": 471,
+      "fantasy_points": 234.64,
+      "season_type": "REG",
+      "player_first_name": "Peyton",
+      "player_last_name": "Manning",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Tennessee",
+      "player_height": 77,
+      "player_weight": 230,
+      "player_birth_date": "1976-03-24",
+      "player_draft_club": "IND",
+      "player_draft_number": 1,
+      "player_team_abbr": "DEN",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/xpcd6auodk3w0vda6jal"
+    },
+    {
+      "season": 2018,
+      "player_id": "00-0033873",
+      "player_name": "Patrick Mahomes",
+      "team": "KC",
+      "position": "P",
+      "games_played": 16,
+      "attempts": 580,
+      "completions": 383,
+      "completion_pct": 66.03448275862068,
+      "passing_yards": 4926,
+      "passing_tds": 50,
+      "passing_interceptions": 12,
+      "qb_epa": 221.76140385950282,
+      "passing_cpoe": 4.472190452450737,
+      "epa_per_dropback": 0.36594291065924556,
+      "passing_air_yards": 5255,
+      "passing_yards_after_catch": 2613,
+      "pacr": 0.9373929590865842,
+      "passing_first_downs": 237,
+      "passing_2pt_conversions": 0,
+      "sacks_suffered": 26,
+      "passing_fumbles": 10,
+      "passing_fumbles_lost": 5,
+      "qb_dropback": 606,
+      "fantasy_points": 363.03999999999996,
+      "season_type": "REG",
+      "player_first_name": "Patrick",
+      "player_last_name": "Mahomes",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Texas Tech",
+      "player_height": 75,
+      "player_weight": 230,
+      "player_birth_date": "1995-09-17",
+      "player_draft_club": "KC",
+      "player_draft_number": 10,
+      "player_team_abbr": "KC",
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/qrdbvu4iqy7wkqg8jq8d"
+    },
+    {
+      "season": 2013,
+      "player_id": "00-0021206",
+      "player_name": "Josh McCown",
+      "team": "CHI",
+      "position": "P",
+      "games_played": 8,
+      "attempts": 224,
+      "completions": 149,
+      "completion_pct": 66.51785714285714,
+      "passing_yards": 1794,
+      "passing_tds": 13,
+      "passing_interceptions": 1,
+      "qb_epa": 83.06691675626953,
+      "passing_cpoe": 4.87264641306617,
+      "epa_per_dropback": 0.3519784608316506,
+      "passing_air_yards": 1769,
+      "passing_yards_after_catch": 835,
+      "pacr": 1.0141322781232334,
+      "passing_first_downs": 90,
+      "passing_2pt_conversions": 1,
+      "sacks_suffered": 11,
+      "passing_fumbles": 4,
+      "passing_fumbles_lost": 2,
+      "qb_dropback": 236,
+      "fantasy_points": 119.76,
+      "season_type": "REG",
+      "player_first_name": "Joshua",
+      "player_last_name": "McCown",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Sam Houston State",
+      "player_height": 76,
+      "player_weight": 218,
+      "player_birth_date": "1979-07-04",
+      "player_draft_club": "ARI",
+      "player_draft_number": 81,
+      "player_team_abbr": "HOU",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu"
+    },
+    {
+      "season": 2013,
+      "player_id": "00-0021206",
+      "player_name": "Josh McCown",
+      "team": "CHI",
+      "position": "P",
+      "games_played": 8,
+      "attempts": 224,
+      "completions": 149,
+      "completion_pct": 66.51785714285714,
+      "passing_yards": 1794,
+      "passing_tds": 13,
+      "passing_interceptions": 1,
+      "qb_epa": 83.06691675626953,
+      "passing_cpoe": 4.87264641306617,
+      "epa_per_dropback": 0.3519784608316506,
+      "passing_air_yards": 1769,
+      "passing_yards_after_catch": 835,
+      "pacr": 1.0141322781232334,
+      "passing_first_downs": 90,
+      "passing_2pt_conversions": 1,
+      "sacks_suffered": 11,
+      "passing_fumbles": 4,
+      "passing_fumbles_lost": 2,
+      "qb_dropback": 236,
+      "fantasy_points": 119.76,
+      "season_type": "REG",
+      "player_first_name": "Joshua",
+      "player_last_name": "McCown",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Sam Houston State",
+      "player_height": 76,
+      "player_weight": 218,
+      "player_birth_date": "1979-07-04",
+      "player_draft_club": "ARI",
+      "player_draft_number": 81,
+      "player_team_abbr": "HOU",
+      "player_headshot": "https://static.www.nfl.com/image/private/f_auto,q_auto/league/qcauc37wqjdaxdbq1evu"
     },
     {
       "season": 2024,
-      "player_id": "00-0035190",
-      "team": "LV",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 34,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 4.333918029908091,
-      "passing_cpoe": 30.53959012031555,
-      "epa_per_dropback": 4.333918029908091,
-      "passing_air_yards": 4,
-      "passing_yards_after_catch": 30,
-      "pacr": 8.5,
-      "passing_first_downs": 1,
+      "player_id": "00-0034796",
+      "player_name": "Lamar Jackson",
+      "team": "BAL",
+      "position": "P",
+      "games_played": 17,
+      "attempts": 474,
+      "completions": 316,
+      "completion_pct": 66.66666666666667,
+      "passing_yards": 4023,
+      "passing_tds": 41,
+      "passing_interceptions": 4,
+      "qb_epa": 172.27861165601786,
+      "passing_cpoe": 4.551942420032056,
+      "epa_per_dropback": 0.3487421288583357,
+      "passing_air_yards": 4109,
+      "passing_yards_after_catch": 2084,
+      "pacr": 0.979070333414456,
+      "passing_first_downs": 198,
       "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 1.36,
+      "sacks_suffered": 23,
+      "passing_fumbles": 5,
+      "passing_fumbles_lost": 2,
+      "qb_dropback": 494,
+      "fantasy_points": 312.92,
       "season_type": "REG",
-      "player_name": "A.J. Cole",
-      "player_first_name": "A.J.",
-      "player_last_name": "Cole",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "North Carolina State",
-      "player_height": 76,
-      "player_weight": 220,
-      "player_birth_date": "1995-11-27",
-      "player_draft_club": null,
-      "player_draft_number": null,
-      "player_team_abbr": "LV",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/iuaqixqidj73rkkwczso"
-    },
-    {
-      "season": 2023,
-      "player_id": "00-0036313",
-      "team": "PHI",
-      "position": "QB",
-      "games_played": 1,
-      "attempts": 1,
-      "completions": 1,
-      "completion_pct": 100,
-      "passing_yards": 28,
-      "passing_tds": 0,
-      "passing_interceptions": 0,
-      "qb_epa": 4.209326545824297,
-      "passing_cpoe": 35.070258378982544,
-      "epa_per_dropback": 4.209326545824297,
-      "passing_air_yards": 11,
-      "passing_yards_after_catch": 17,
-      "pacr": 2.5454545454545454,
-      "passing_first_downs": 1,
-      "passing_2pt_conversions": 0,
-      "sacks_suffered": 0,
-      "passing_fumbles": 0,
-      "passing_fumbles_lost": 0,
-      "qb_dropback": 1,
-      "fantasy_points": 1.12,
-      "season_type": "REG",
-      "player_name": "Braden Mann",
-      "player_first_name": "Braden",
-      "player_last_name": "Mann",
-      "player_position": "P",
-      "player_position_group": "SPEC",
-      "player_college_name": "Texas A&amp;M",
-      "player_height": 71,
-      "player_weight": 190,
-      "player_birth_date": "1997-11-24",
-      "player_draft_club": "NYJ",
-      "player_draft_number": 191,
-      "player_team_abbr": "PHI",
-      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/z2s9qddgientrtm86fmc"
+      "player_first_name": "Lamar",
+      "player_last_name": "Jackson",
+      "player_position": "QB",
+      "player_position_group": "QB",
+      "player_college_name": "Louisville",
+      "player_height": 74,
+      "player_weight": 212,
+      "player_birth_date": "1997-01-07",
+      "player_draft_club": "BAL",
+      "player_draft_number": 32,
+      "player_team_abbr": "BAL",
+      "player_headshot": "https://static.www.nfl.com/image/upload/f_auto,q_auto/league/cruqs6qpbykh7a2whd7p"
     }
   ]
 }
-Response headers
- cache-control: max-age=43200 
- content-length: 10017 
- content-type: application/json 
- date: Fri,02 May 2025 12:59:11 GMT 
- etag: W/534950708629701427 
- server: uvicorn 
- x-fastapi-cache: MISS 
-Responses
-Code	Description	Links
-200	
-Successful Response
-
-Media type
-
-application/json
-Controls Accept header.
-Example Value
-Schema
-"string"
-No links
-422	
-Validation Error
-
-Media type
-
-application/json
-Example Value
-Schema
-{
-  "detail": [
-    {
-      "loc": [
-        "string",
-        0
-      ],
-      "msg": "string",
-      "type": "string"
-    }
-  ]
-}
-No links
-
-GET
-/api/{team}/{name}/stats
-Get Player Stats By Team Endpoint
 
 
-GET
-/api/team/{team}
-Get Stats For Team
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     127.0.0.1:49491 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49491 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49491 - "GET /openapi.json HTTP/1.1" 200 OK
+TOP PLAYERS ENDPOINT: Position=QB, Aggregation=season, Week=None, Seasons=None
+DEBUG: PBP parquet file exists with 1184719 rows
+DEBUG: Seasons available: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+DEBUG: Weeks available: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+DEBUG: calculate_qb_stats input:
+  - Input pbp rows: 1184719
+  - Aggregation: season, Seasons: None, Week: None
+/Users/shaanchanchani/dev/nfl-data-api/src/nfl_data/endpoints/player_stats.py:600: SettingWithCopyWarning:
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
 
-
-GET
-/api/game
-Get Game Details
-
-
-GET
-/api/game/outlook
-Get Game Analysis
-
-
-GET
-/api/compare
-Compare Players
-
-
-GET
-/health
-Health Check
-
-
-GET
-/
-Root
-
-
-POST
-/api/cache/clear
-Clear Cache
-
-
-GET
-/api/cache/status
-Get Cache Status
-
-
-Schemas
-AggregationTypeExpand allstring
-HTTPValidationErrorExpand allobject
-ValidationErrorExpand allobject
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  result['position'] = result['player_id'].map(
+DEBUG: After applying thresholds:
+  - 1419 rows remaining
+  - Columns: ['season', 'player_id', 'player_name', 'team', 'position', 'games_played', 'attempts', 'completions', 'completion_pct', 'passing_yards', 'passing_tds', 'passing_interceptions', 'qb_epa', 'passing_cpoe', 'epa_per_dropback', 'passing_air_yards', 'passing_yards_after_catch', 'pacr', 'passing_first_downs', 'passing_2pt_conversions', 'sacks_suffered', 'passing_fumbles', 'passing_fumbles_lost', 'qb_dropback', 'fantasy_points', 'season_type']
+  - Sample sort values for epa_per_dropback: [-0.10269202930211097, -0.05229911122973512, -0.15558200744618605]
+DEBUG: After sorting, got 10 top players for season aggregation
+INFO:     127.0.0.1:49492 - "GET /api/players/top?position=QB&n=10&ascending=false&season_type=REG&redzone_only=false&aggregation_type=season&include_player_details=true HTTP/1.1" 200 OK

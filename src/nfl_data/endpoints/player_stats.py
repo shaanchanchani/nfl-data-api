@@ -11,6 +11,7 @@ import numpy as np
 from typing import Union, List, Optional, Dict, Any
 from pathlib import Path
 import logging # Added logging import
+import sys # For function name detection
 
 # Import the consolidated resolve_player from stats_helpers
 from src.nfl_data.stats_helpers import resolve_player, get_player_position
@@ -155,6 +156,10 @@ def calculate_qb_stats(
     opponent_team: Optional[str] = None,
     score_differential_range: Optional[List[int]] = None
 ) -> pd.DataFrame:
+    # DEBUG: Add trace info for week-based aggregation debugging
+    print(f"DEBUG: calculate_qb_stats input:")
+    print(f"  - Input pbp rows: {len(pbp)}")
+    print(f"  - Aggregation: {aggregation_type}, Seasons: {seasons}, Week: {week}")
     """
     Compute quarterback stats based on NFL play-by-play data.
     
@@ -592,10 +597,15 @@ def calculate_qb_stats(
                     lambda x: player_info.loc[x, 'display_name'] if x in player_info.index else f"Unknown ({x})"
                 )
             
-            # Always add/update position from players_df for consistency
-            result['position'] = result['player_id'].map(
-                lambda x: player_info.loc[x, 'position'] if x in player_info.index else None
-            )
+            # Always use the correct position based on the function type, don't use database position 
+            # Database position may be incorrect (that's causing our issue)
+            if 'calculate_qb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "QB"
+            elif 'calculate_rb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "RB"
+            elif 'calculate_wr_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "WR"
+            # Add additional position functions as needed
 
         except Exception as e:
             print(f"Could not add player name/position: {e}")
@@ -613,10 +623,9 @@ def calculate_qb_stats(
             result['player_name'] = result['player_id'].map(
                 lambda x: player_name_map.get(x, f"Unknown ({x})")
             )
-            # Add the position column
-            result['position'] = result['player_id'].map(
-                lambda x: player_pos_map.get(x)
-            )
+            # For QB stats always set position to QB, don't use player_pos_map
+            # This ensures correct position regardless of database values
+            result['position'] = "QB"
         except Exception as e:
             print(f"Could not add player names/positions: {e}")
     
@@ -640,9 +649,11 @@ def calculate_qb_stats(
         # Assuming position is consistent for a player within the group
         first_player_id = final_result['player_id'].iloc[0] 
         if first_player_id:
-            fetched_pos = get_player_position(first_player_id)
-            final_result['position'] = fetched_pos
-            # Ensure 'position' is in the final columns list again, in case it wasn't added before
+            # ALWAYS override with the correct position based on calculation function
+            # This is the QB stats function, so use QB regardless of what's in the database
+            final_result['position'] = "QB"
+            
+            # Only add position if it somehow isn't in columns list
             if 'position' not in final_result.columns.tolist():
                  cols = final_result.columns.tolist()
                  try:
@@ -674,20 +685,16 @@ def calculate_qb_stats(
     #          cols.insert(insert_idx, 'position')
     #          final_result = final_result[cols]
 
-    # Ensure the position column exists and is populated
-    if 'player_id' in final_result.columns and 'position' not in final_result.columns:
-        try:
-            # Use the first player_id in the group to determine position
-            first_player_id = final_result['player_id'].iloc[0]
-            if first_player_id:
-                 final_result['position'] = get_player_position(first_player_id)
-            else:
-                 final_result['position'] = None # Or use the initially detected position if available?
-        except Exception as e:
-            logger.error(f"Error adding position column in calculate_qb_stats: {e}")
-            final_result['position'] = None # Default to None on error
-    elif 'position' not in final_result.columns:
-         final_result['position'] = None # Ensure column exists even if player_id wasn't present
+    # Ensure the position column exists and is populated with the correct position
+    # based on which stats calculation function was called
+    if 'position' not in final_result.columns:
+        if 'calculate_qb_stats' in sys._getframe().f_code.co_name:
+            final_result['position'] = "QB"
+        elif 'calculate_rb_stats' in sys._getframe().f_code.co_name:
+            final_result['position'] = "RB"  
+        elif 'calculate_wr_stats' in sys._getframe().f_code.co_name:
+            final_result['position'] = "WR"
+        # Add other function mappings as needed
 
 
     return final_result
@@ -1268,10 +1275,15 @@ def calculate_rb_stats(
                     lambda x: player_info.loc[x, 'display_name'] if x in player_info.index else f"Unknown ({x})"
                 )
             
-            # Always add/update position from players_df for consistency
-            result['position'] = result['player_id'].map(
-                lambda x: player_info.loc[x, 'position'] if x in player_info.index else None
-            )
+            # Always use the correct position based on the function type, don't use database position 
+            # Database position may be incorrect (that's causing our issue)
+            if 'calculate_qb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "QB"
+            elif 'calculate_rb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "RB"
+            elif 'calculate_wr_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "WR"
+            # Add additional position functions as needed
 
         except Exception as e:
             print(f"Could not add player name/position: {e}")
@@ -1289,10 +1301,9 @@ def calculate_rb_stats(
             result['player_name'] = result['player_id'].map(
                 lambda x: player_name_map.get(x, f"Unknown ({x})")
             )
-            # Add the position column
-            result['position'] = result['player_id'].map(
-                lambda x: player_pos_map.get(x)
-            )
+            # For QB stats always set position to QB, don't use player_pos_map
+            # This ensures correct position regardless of database values
+            result['position'] = "QB"
         except Exception as e:
             print(f"Could not add player names/positions: {e}")
     
@@ -1802,10 +1813,15 @@ def calculate_wr_stats(
                     lambda x: player_info.loc[x, 'display_name'] if x in player_info.index else f"Unknown ({x})"
                 )
             
-            # Always add/update position from players_df for consistency
-            result['position'] = result['player_id'].map(
-                lambda x: player_info.loc[x, 'position'] if x in player_info.index else None
-            )
+            # Always use the correct position based on the function type, don't use database position 
+            # Database position may be incorrect (that's causing our issue)
+            if 'calculate_qb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "QB"
+            elif 'calculate_rb_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "RB"
+            elif 'calculate_wr_stats' in sys._getframe().f_code.co_name:
+                result['position'] = "WR"
+            # Add additional position functions as needed
 
         except Exception as e:
             print(f"Could not add player name/position: {e}")
@@ -1823,10 +1839,9 @@ def calculate_wr_stats(
             result['player_name'] = result['player_id'].map(
                 lambda x: player_name_map.get(x, f"Unknown ({x})")
             )
-            # Add the position column
-            result['position'] = result['player_id'].map(
-                lambda x: player_pos_map.get(x)
-            )
+            # For QB stats always set position to QB, don't use player_pos_map
+            # This ensures correct position regardless of database values
+            result['position'] = "QB"
         except Exception as e:
             print(f"Could not add player names/positions: {e}")
     
@@ -2145,12 +2160,23 @@ def get_top_players(
     
     # Default minimum thresholds by position if not specified
     if min_threshold is None:
-        if position_upper in QB_POSITIONS:
-            min_threshold = {'qb_dropback': 100}
-        elif position_upper in RB_POSITIONS:
-            min_threshold = {'carries': 50}
-        elif position_upper in WR_POSITIONS or position_upper in TE_POSITIONS:
-            min_threshold = {'targets': 30}
+        # Use different thresholds based on aggregation type
+        if aggregation_type == "week":
+            # Use lower thresholds for game-level stats
+            if position_upper in QB_POSITIONS:
+                min_threshold = {'qb_dropback': 10}  # At least 10 dropbacks in a game
+            elif position_upper in RB_POSITIONS:
+                min_threshold = {'carries': 5}       # At least 5 carries in a game
+            elif position_upper in WR_POSITIONS or position_upper in TE_POSITIONS:
+                min_threshold = {'targets': 3}       # At least 3 targets in a game
+        else:
+            # Use higher thresholds for season or career aggregation
+            if position_upper in QB_POSITIONS:
+                min_threshold = {'qb_dropback': 100}
+            elif position_upper in RB_POSITIONS:
+                min_threshold = {'carries': 50}
+            elif position_upper in WR_POSITIONS or position_upper in TE_POSITIONS:
+                min_threshold = {'targets': 30}
     
     # Calculate stats for the specific position
     position_stats = None
@@ -2159,6 +2185,8 @@ def get_top_players(
     standardized_position = position
     
     if position_upper in QB_POSITIONS:
+        # IMPORTANT: For QBs specifically, ensure all the parameters are defined correctly
+        print(f"DEBUG: Getting QB stats with position={position_upper}")
         position_stats = calculate_qb_stats(
             pbp=pbp,
             aggregation_type=aggregation_type,
@@ -2170,6 +2198,7 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
+        position_stats['position'] = "QB"  # Explicitly set position for all players in this result
         standardized_position = "QB"
     elif position_upper in RB_POSITIONS:
         position_stats = calculate_rb_stats(
@@ -2183,6 +2212,7 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
+        position_stats['position'] = "RB"  # Explicitly set position for all players in this result
         standardized_position = "RB"
     elif position_upper in WR_POSITIONS:
         position_stats = calculate_wr_stats(
@@ -2196,6 +2226,7 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
+        position_stats['position'] = "WR"  # Explicitly set position for all players in this result
         standardized_position = "WR"
     elif position_upper in TE_POSITIONS:
         # For TEs, we use the same function as WRs but may apply different thresholds
@@ -2210,14 +2241,19 @@ def get_top_players(
             opponent_team=opponent_team,
             score_differential_range=score_differential_range
         )
+        position_stats['position'] = "TE"  # Explicitly set position for all players in this result
         standardized_position = "TE"
     else:
         # If position is not recognized, raise a meaningful error
         valid_positions = QB_POSITIONS + RB_POSITIONS + WR_POSITIONS + TE_POSITIONS
         raise ValueError(f"Unsupported position: '{position}'. Supported positions are: {', '.join(sorted(set(valid_positions)))}")
     
-    if position_stats is None or len(position_stats) == 0:
-        print(f"No stats found for position: {position}")
+    if position_stats is None:
+        print(f"No stats found for position: {position} - position_stats is None")
+        return pd.DataFrame()
+    elif len(position_stats) == 0:
+        print(f"No stats found for position: {position} - position_stats is empty DataFrame")
+        print(f"Aggregation type: {aggregation_type}, Season: {seasons}, Week: {week}")
         return pd.DataFrame()
     
     # Validate sort_by column exists
@@ -2238,12 +2274,43 @@ def get_top_players(
         print(f"No {position}s found meeting the minimum thresholds: {thresholds_str}. Try lowering the thresholds.")
         return pd.DataFrame()
     
-    # Sort and get top N players
-    top_players = filtered_stats.sort_values(
-        by=sort_by,
-        ascending=ascending,
-        na_position='last'
-    ).head(n)
+    # Debug: Print filtered stats information 
+    print(f"DEBUG: After applying thresholds:")
+    print(f"  - {len(filtered_stats)} rows remaining")
+    if len(filtered_stats) > 0:
+        print(f"  - Columns: {filtered_stats.columns.tolist()}")
+        print(f"  - Sample sort values for {sort_by}: {filtered_stats[sort_by].head(3).tolist()}")
+    
+    # Special handling for week aggregation type
+    if aggregation_type == "week" and week is None:
+        # When no specific week is requested, find the top N individual game performances
+        print(f"DEBUG: Using special week aggregation handling (no specific week)")
+        
+        # Make sure we're tracking the player ID column
+        id_cols = [col for col in filtered_stats.columns if col.endswith('player_id')]
+        if id_cols:
+            player_id_col = id_cols[0]
+            print(f"DEBUG: Found player ID column: {player_id_col}")
+            
+            # Sort all individual games (week-level stats) and get top N
+            top_players = filtered_stats.sort_values(
+                by=sort_by,
+                ascending=ascending,
+                na_position='last'
+            ).head(n)
+            print(f"DEBUG: After sorting, got {len(top_players)} top players for week aggregation")
+        else:
+            # If we can't identify player ID column, return empty DataFrame
+            print("Error: Can't find player ID column for week aggregation")
+            return pd.DataFrame()
+    else:
+        # For season, career, or specific week aggregation, sort and get top N
+        top_players = filtered_stats.sort_values(
+            by=sort_by,
+            ascending=ascending,
+            na_position='last'
+        ).head(n)
+        print(f"DEBUG: After sorting, got {len(top_players)} top players for {aggregation_type} aggregation")
     
     # Always add player names from players.parquet (regardless of include_player_details setting)
     if not top_players.empty:
@@ -2266,7 +2333,7 @@ def get_top_players(
                 ].set_index('gsis_id')
                 
                 # Add relevant columns from player_info
-                detail_columns = ['first_name', 'last_name', 'position', 'position_group',
+                detail_columns = ['first_name', 'last_name', 'position_group',
                                  'college_name', 'height', 'weight', 'birth_date', 
                                  'draft_club', 'draft_number', 'team_abbr', 'headshot']
                 
@@ -2276,6 +2343,12 @@ def get_top_players(
                 for col in available_columns:
                     top_players[f'player_{col}'] = top_players['player_id'].map(
                         lambda x: player_info.loc[x, col] if x in player_info.index else None
+                    )
+                
+                # Add database position as player_position but preserve the original position
+                if 'position' in player_info.columns:
+                    top_players['player_position'] = top_players['player_id'].map(
+                        lambda x: player_info.loc[x, 'position'] if x in player_info.index else None
                     )
                 
         except Exception as e:

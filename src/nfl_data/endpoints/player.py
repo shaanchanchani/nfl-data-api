@@ -316,7 +316,28 @@ async def get_top_players_endpoint(
                     except ValueError:
                         logger.warning(f"Could not parse threshold value '{pair}'. Skipping.")
 
+        # Endpoint debug info
+        print(f"TOP PLAYERS ENDPOINT: Position={position}, Aggregation={aggregation_type.value}, Week={week}, Seasons={seasons_parsed}")
+        
         try:
+            # Temporary debug - check parquet file
+            import pandas as pd
+            from pathlib import Path
+            pbp_path = Path("cache/play_by_play_condensed.parquet")
+            if pbp_path.exists():
+                pbp_sample = pd.read_parquet(pbp_path)
+                print(f"DEBUG: PBP parquet file exists with {len(pbp_sample)} rows")
+                if len(pbp_sample) > 0:
+                    # Get sample of seasons and weeks available
+                    if 'season' in pbp_sample.columns:
+                        seasons_available = sorted(pbp_sample['season'].unique().tolist())
+                        print(f"DEBUG: Seasons available: {seasons_available}")
+                    if 'week' in pbp_sample.columns:
+                        weeks_available = sorted(pbp_sample['week'].unique().tolist())
+                        print(f"DEBUG: Weeks available: {weeks_available}")
+            else:
+                print("DEBUG: PBP parquet file not found!")
+            
             leaderboard_df = get_top_players(
                 position=position,
                 n=n,
@@ -348,7 +369,16 @@ async def get_top_players_endpoint(
                 "message": f"No players found matching the criteria for position '{position}'. Try adjusting filters."
             }
             
-        records = [_sanitize_record(rec) for rec in leaderboard_df.to_dict(orient="records")]
+        # Convert to records and override any incorrect positions with the requested position
+        # This ensures the position in the response matches what was requested
+        records = []
+        for rec in leaderboard_df.to_dict(orient="records"):
+            sanitized_rec = _sanitize_record(rec)
+            # Explicitly set position to match the requested position
+            if "position" in sanitized_rec:
+                sanitized_rec["position"] = position
+            records.append(sanitized_rec)
+            
         return {
             "position": position,
             "leaderboard": records,
