@@ -55,7 +55,7 @@ def import_pbp_data():
     """Return the condensed play-by-play DataFrame (sync)."""
     # Assuming load_pbp_data() is the correct synchronous function
         # Load PBP data directly from the condensed cache file
-    pbp_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet"
+    pbp_file_path = "cache/play_by_play_condensed.parquet"
     try:
         pbp_data = pd.read_parquet(pbp_file_path)
         logger.info(f"Loaded PBP data from {pbp_file_path}")
@@ -234,7 +234,7 @@ def resolve_player(name: str, team: Optional[str] = None, season: Optional[int] 
         # Use the asynchronous loader - REMOVED
         # players_df = await load_players() 
         # Load directly from parquet file
-        player_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/players.parquet"
+        player_file_path = "cache/players.parquet"
         try:
             players_df = pd.read_parquet(player_file_path)
             logger.info(f"Successfully loaded player data from {player_file_path}")
@@ -444,7 +444,7 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
 
     try:
         # Load PBP data directly from the condensed cache file
-        pbp_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet"
+        pbp_file_path = "cache/play_by_play_condensed.parquet"
         try:
             # pbp_data = load_pbp_data() # ERROR: Not defined
             pbp_data = pd.read_parquet(pbp_file_path)
@@ -621,32 +621,6 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
     except Exception as e:
         logger.exception(f"Error calculating situation stats for {player_name}, situations {situations}: {str(e)}")
         return {"error": f"An unexpected error occurred: {str(e)}"}
-
-def get_player_stats(
-    player_name: str,
-    season: Optional[int] = None,
-    week: Optional[int] = None,
-    **situation_filters: Dict[str, Any]
-) -> Dict:
-    """Get comprehensive player stats with optional situation filters."""
-    try:
-        # For testing purposes, return a dummy response
-        return {
-            "player_name": player_name,
-            "season": season or 2024,
-            "week": week,
-            "filters_applied": situation_filters,
-            "stats": {
-                "games_played": 17,
-                "passing_yards": 5250,
-                "passing_tds": 38,
-                "interceptions": 12,
-                "completion_percentage": 67.2,
-                "qb_rating": 105.7
-            }
-        }
-    except Exception as e:
-        return {"error": f"An error occurred calculating stats: {str(e)}"}
 
 def get_position_specific_stats_from_pbp(
     plays: pd.DataFrame,
