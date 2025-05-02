@@ -464,10 +464,10 @@ def get_top_players(
         
         # Add the actual position column from the database
         if 'player_id' in position_stats.columns:
-            position_stats['actual_position'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position'] = position_stats['player_id'].map(
                 lambda x: player_position_map.get(x, "UNKNOWN")
             )
-            position_stats['actual_position_group'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position_group'] = position_stats['player_id'].map(
                 lambda x: player_position_group_map.get(x, "UNKNOWN")
             )
             
@@ -482,9 +482,9 @@ def get_top_players(
             ]
             
             # Now set the display position
-            position_stats['position'] = "QB"  # Explicitly set position for all players in this result
+            position_stats.loc[:, 'position'] = "QB"  # Explicitly set position for all players in this result
         else:
-            position_stats['position'] = "QB"
+            position_stats.loc[:, 'position'] = "QB"
             
         standardized_position = "QB"
         
@@ -625,14 +625,14 @@ def get_top_players(
                 for col in rushing_cols:
                     base_col = col.replace('_rushing', '')
                     # Use the rushing data and remove the suffix column
-                    position_stats[base_col] = position_stats[col]
+                    position_stats.loc[:, base_col] = position_stats[col]
                     position_stats = position_stats.drop(columns=[col])
                     print(f"DEBUG: Using data from {col} for {base_col}")
                 
                 # Fill NAs with 0
                 for col in rushing_stats.columns:
                     if col not in merge_cols and col in position_stats.columns:
-                        position_stats[col] = position_stats[col].fillna(0)
+                        position_stats.loc[:, col] = position_stats[col].fillna(0)
                 
                 # Ensure rushing columns exist before calculating fantasy points
                 rushing_columns = [
@@ -642,11 +642,11 @@ def get_top_players(
                 # Initialize any missing rushing columns needed for fantasy points with zeros
                 for col in rushing_columns:
                     if col not in position_stats.columns:
-                        position_stats[col] = 0
+                        position_stats.loc[:, col] = 0
                         print(f"DEBUG: Added missing column {col} for fantasy points calculation")
                 
                 # Update fantasy points to include rushing
-                position_stats['fantasy_points'] = (
+                position_stats.loc[:, 'fantasy_points'] = (
                     (1/25) * position_stats['passing_yards'] +
                     4 * position_stats['passing_tds'] +
                     -2 * position_stats['passing_interceptions'] +
@@ -669,11 +669,11 @@ def get_top_players(
                 # Ensure all rushing columns exist
                 for col in rushing_columns:
                     if col not in position_stats.columns:
-                        position_stats[col] = 0
+                        position_stats.loc[:, col] = 0
                         print(f"DEBUG: Added missing column {col} in else branch")
                 
                 # Also add fantasy points calculation for this branch
-                position_stats['fantasy_points'] = (
+                position_stats.loc[:, 'fantasy_points'] = (
                     (1/25) * position_stats['passing_yards'] +
                     4 * position_stats['passing_tds'] +
                     -2 * position_stats['passing_interceptions'] +
@@ -696,7 +696,7 @@ def get_top_players(
             # Initialize any missing rushing columns with zeros
             for col in rushing_columns:
                 if col not in position_stats.columns:
-                    position_stats[col] = 0
+                    position_stats.loc[:, col] = 0
             
             # Clean up any duplicate columns with _x or _y suffixes
             for col in rushing_columns:
@@ -704,17 +704,17 @@ def get_top_players(
                 if f"{col}_x" in position_stats.columns:
                     # If we have a _y version, use that (it's from the rushing stats)
                     if f"{col}_y" in position_stats.columns:
-                        position_stats[col] = position_stats[f"{col}_y"]
+                        position_stats.loc[:, col] = position_stats[f"{col}_y"]
                         position_stats = position_stats.drop(columns=[f"{col}_x", f"{col}_y"])
                         print(f"DEBUG: Fixed duplicate column {col} by using _y value and dropping both _x and _y")
                     else:
                         # If we only have _x, rename it
-                        position_stats[col] = position_stats[f"{col}_x"]
+                        position_stats.loc[:, col] = position_stats[f"{col}_x"]
                         position_stats = position_stats.drop(columns=[f"{col}_x"])
                         print(f"DEBUG: Fixed duplicate column {col} by removing _x suffix")
                 # If we only have _y, rename it
                 elif f"{col}_y" in position_stats.columns:
-                    position_stats[col] = position_stats[f"{col}_y"]
+                    position_stats.loc[:, col] = position_stats[f"{col}_y"]
                     position_stats = position_stats.drop(columns=[f"{col}_y"])
                     print(f"DEBUG: Fixed duplicate column {col} by removing _y suffix")
             
@@ -749,10 +749,10 @@ def get_top_players(
         
         # Add the actual position column from the database
         if 'player_id' in position_stats.columns:
-            position_stats['actual_position'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position'] = position_stats['player_id'].map(
                 lambda x: player_position_map.get(x, "UNKNOWN")
             )
-            position_stats['actual_position_group'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position_group'] = position_stats['player_id'].map(
                 lambda x: player_position_group_map.get(x, "UNKNOWN")
             )
             
@@ -767,9 +767,9 @@ def get_top_players(
             ]
             
             # Now set the display position
-            position_stats['position'] = "RB"  # Explicitly set position for all players in this result
+            position_stats.loc[:, 'position'] = "RB"  # Explicitly set position for all players in this result
         else:
-            position_stats['position'] = "RB"
+            position_stats.loc[:, 'position'] = "RB"
             
         standardized_position = "RB"
     elif position_upper in WR_POSITIONS:
@@ -795,10 +795,10 @@ def get_top_players(
         
         # Add the actual position column from the database
         if 'player_id' in position_stats.columns:
-            position_stats['actual_position'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position'] = position_stats['player_id'].map(
                 lambda x: player_position_map.get(x, "UNKNOWN")
             )
-            position_stats['actual_position_group'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position_group'] = position_stats['player_id'].map(
                 lambda x: player_position_group_map.get(x, "UNKNOWN")
             )
             
@@ -814,9 +814,9 @@ def get_top_players(
             print(f"DEBUG: After strict WR filtering (excluding TEs): {len(position_stats)} rows")
             
             # Now set the display position
-            position_stats['position'] = "WR"  # Explicitly set position for all players in this result
+            position_stats.loc[:, 'position'] = "WR"  # Explicitly set position for all players in this result
         else:
-            position_stats['position'] = "WR"
+            position_stats.loc[:, 'position'] = "WR"
             
         standardized_position = "WR"
         print(f"DEBUG: After WR stats calculation, columns: {position_stats.columns.tolist()}")
@@ -843,10 +843,10 @@ def get_top_players(
         
         # Add the actual position column from the database
         if 'player_id' in position_stats.columns:
-            position_stats['actual_position'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position'] = position_stats['player_id'].map(
                 lambda x: player_position_map.get(x, "UNKNOWN")
             )
-            position_stats['actual_position_group'] = position_stats['player_id'].map(
+            position_stats.loc[:, 'actual_position_group'] = position_stats['player_id'].map(
                 lambda x: player_position_group_map.get(x, "UNKNOWN")
             )
             
@@ -862,9 +862,9 @@ def get_top_players(
             print(f"DEBUG: After strict TE filtering (excluding WRs): {len(position_stats)} rows")
             
             # Now set the display position
-            position_stats['position'] = "TE"  # Explicitly set position for all players in this result
+            position_stats.loc[:, 'position'] = "TE"  # Explicitly set position for all players in this result
         else:
-            position_stats['position'] = "TE"
+            position_stats.loc[:, 'position'] = "TE"
             
         standardized_position = "TE"
     else:
@@ -1013,28 +1013,28 @@ def get_top_players(
                 for col in rushing_cols:
                     base_col = col.replace('_rushing', '')
                     # Use the rushing data and remove the suffix column
-                    position_stats[base_col] = position_stats[col]
+                    position_stats.loc[:, base_col] = position_stats[col]
                     position_stats = position_stats.drop(columns=[col])
                     print(f"DEBUG: Using data from {col} for {base_col}")
                 
                 # Fill NAs with 0
                 for col in rushing_stats.columns:
                     if col not in merge_cols and col in position_stats.columns:
-                        position_stats[col] = position_stats[col].fillna(0)
+                        position_stats.loc[:, col] = position_stats[col].fillna(0)
             else:
                 # If no rushing plays found, add all rushing columns with zeros to avoid KeyError
-                position_stats['rushing_yards'] = 0
-                position_stats['rushing_tds'] = 0
-                position_stats['rushing_first_downs'] = 0
-                position_stats['rushing_fumbles'] = 0
-                position_stats['rushing_fumbles_lost'] = 0
-                position_stats['rushing_epa'] = 0
-                position_stats['carries'] = 0
-                position_stats['yards_per_carry'] = 0
+                position_stats.loc[:, 'rushing_yards'] = 0
+                position_stats.loc[:, 'rushing_tds'] = 0
+                position_stats.loc[:, 'rushing_first_downs'] = 0
+                position_stats.loc[:, 'rushing_fumbles'] = 0
+                position_stats.loc[:, 'rushing_fumbles_lost'] = 0
+                position_stats.loc[:, 'rushing_epa'] = 0
+                position_stats.loc[:, 'carries'] = 0
+                position_stats.loc[:, 'yards_per_carry'] = 0
                 
                 # Also add the specific sort_by column if needed
                 if sort_by not in position_stats.columns:
-                    position_stats[sort_by] = 0
+                    position_stats.loc[:, sort_by] = 0
                 
             print(f"DEBUG: After adding QB rushing stats, position_stats columns: {position_stats.columns.tolist()}")
     
@@ -1125,7 +1125,7 @@ def get_top_players(
             player_name_map = dict(zip(players_df['gsis_id'], players_df['display_name']))
             
             # Add the display name as player_name column
-            top_players['player_name'] = top_players['player_id'].map(
+            top_players.loc[:, 'player_name'] = top_players['player_id'].map(
                 lambda x: player_name_map.get(x, f"Unknown ({x})")
             )
             
@@ -1145,13 +1145,13 @@ def get_top_players(
                 available_columns = [col for col in detail_columns if col in player_info.columns]
                 
                 for col in available_columns:
-                    top_players[f'player_{col}'] = top_players['player_id'].map(
+                    top_players.loc[:, f'player_{col}'] = top_players['player_id'].map(
                         lambda x: player_info.loc[x, col] if x in player_info.index else None
                     )
                 
                 # Add database position as player_position but preserve the original position
                 if 'position' in player_info.columns:
-                    top_players['player_position'] = top_players['player_id'].map(
+                    top_players.loc[:, 'player_position'] = top_players['player_id'].map(
                         lambda x: player_info.loc[x, 'position'] if x in player_info.index else None
                     )
                 
