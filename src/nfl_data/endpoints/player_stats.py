@@ -445,6 +445,220 @@ def calculate_qb_stats(
         np.nan
     )
     
+    # Calculate epa_per_dropback
+    passing_stats['epa_per_dropback'] = np.where(
+        (passing_stats['attempts'] + passing_stats['sacks_suffered']) > 0,
+        passing_stats['qb_epa'] / (passing_stats['attempts'] + passing_stats['sacks_suffered']),
+        np.nan
+    )
+    
+    # Calculate qb_dropback
+    passing_stats['qb_dropback'] = passing_stats['attempts'] + passing_stats['sacks_suffered']
+    
+    # Now let's get the rushing stats for QBs
+    # For rushing stats, we need to get a fresh copy of the data
+    rushing_pbp = pbp.copy()
+    
+    # Apply the same filters we applied to the passing data
+    # Handle seasons parameter
+    if seasons is not None:
+        if isinstance(seasons, int):
+            seasons = [seasons]
+        rushing_pbp = rushing_pbp[rushing_pbp['season'].isin(seasons)]
+    
+    # Filter by season_type if needed
+    if season_type in ["REG", "POST"]:
+        rushing_pbp = rushing_pbp[rushing_pbp['season_type'] == season_type]
+    
+    # Filter by week if specified and relevant
+    if week is not None and aggregation_type == "week":
+        rushing_pbp = rushing_pbp[rushing_pbp['week'] == week]
+    
+    # Filter for redzone plays if specified
+    if redzone_only:
+        rushing_pbp = rushing_pbp[rushing_pbp['yardline_100'] <= 20]
+        
+    # Filter by downs if specified
+    if downs is not None:
+        rushing_pbp = rushing_pbp[rushing_pbp['down'].isin(downs)]
+    
+    # Filter by opponent team if specified
+    if opponent_team is not None:
+        rushing_pbp = rushing_pbp[rushing_pbp['defteam'] == opponent_team]
+        
+    # Filter by score differential range if specified
+    if score_differential_range is not None:
+        min_diff, max_diff = score_differential_range
+        rushing_pbp = rushing_pbp[(rushing_pbp['score_differential'] >= min_diff) & 
+                                 (rushing_pbp['score_differential'] <= max_diff)]
+    
+    # Set grouping variables for rushing stats
+    if aggregation_type == "season":
+        rusher_group_cols = ['season', 'rusher_player_id', 'posteam']
+    elif aggregation_type == "week":
+        rusher_group_cols = ['season', 'week', 'rusher_player_id', 'posteam']
+    else:  # career
+        rusher_group_cols = ['rusher_player_id', 'posteam']
+    
+    # Filter for rushing plays where the QB is the rusher
+    if player_id is not None:
+        # If we're looking for a specific QB, filter for them as a rusher
+        rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & (rushing_pbp['rusher_player_id'] == player_id) & (rushing_pbp['play_type'] == 'run')
+    else:
+        # Get all QBs from the passing stats and find their rushing plays
+        rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & rushing_pbp['rusher_player_id'].isin(passing_stats['player_id']) & (rushing_pbp['play_type'] == 'run')
+    
+    # Get rushing stats
+    rushing_stats = None
+    
+    if rusher_filter.sum() > 0:
+        # Extract features for rushes by QBs
+        rushing_stats = (
+            rushing_pbp[rusher_filter]
+            .groupby(rusher_group_cols)
+            .agg({
+                'yards_gained': 'sum',
+                'touchdown': 'sum',
+                'rush_touchdown': 'sum',
+                'first_down_rush': 'sum',
+                'fumble': 'sum',
+                'fumble_lost': 'sum',
+                'epa': lambda x: x.sum(skipna=True)
+            })
+            .reset_index()
+            .rename(columns={
+                'rusher_player_id': 'player_id',
+                'posteam': 'team',
+                'yards_gained': 'rushing_yards',
+                'rush_touchdown': 'rushing_tds',
+                'first_down_rush': 'rushing_first_downs',
+                'fumble': 'rushing_fumbles',
+                'fumble_lost': 'rushing_fumbles_lost',
+                'epa': 'rushing_epa'
+            })
+        )
+        
+        # Calculate carries
+        carries_count = (
+            rushing_pbp[rusher_filter]
+            .groupby(rusher_group_cols)
+            .size()
+            .reset_index()
+            .rename(columns={0: 'carries'})
+        )
+        
+        # Rename columns to match the rushing_stats DataFrame
+        rename_dict = {}
+        if 'rusher_player_id' in carries_count.columns:
+            rename_dict['rusher_player_id'] = 'player_id'
+        if 'posteam' in carries_count.columns:
+            rename_dict['posteam'] = 'team'
+        carries_count = carries_count.rename(columns=rename_dict)
+        
+        # Determine merge columns
+        merge_cols = []
+        for col in rusher_group_cols:
+            if col == 'rusher_player_id':
+                merge_cols.append('player_id')
+            elif col == 'posteam':
+                merge_cols.append('team')
+            else:
+                merge_cols.append(col)
+        
+        # Merge the carries count with rushing stats
+        rushing_stats = rushing_stats.merge(
+            carries_count,
+            on=merge_cols,
+            how='left'
+        )
+        
+        # Calculate yards per carry
+        rushing_stats['yards_per_carry'] = np.where(
+            rushing_stats['carries'] > 0,
+            rushing_stats['rushing_yards'] / rushing_stats['carries'],
+            np.nan
+        )
+        
+        # Calculate EPA per carry
+        rushing_stats['epa_per_carry'] = np.where(
+            rushing_stats['carries'] > 0,
+            rushing_stats['rushing_epa'] / rushing_stats['carries'],
+            np.nan
+        )
+        
+        # Calculate 2-point conversions for rushing
+        rush_2pt_filter = (rushing_pbp['play_type'] == 'run') & (rushing_pbp['two_point_conv_result'] == 'success')
+        if player_id is not None:
+            rush_2pt_filter &= (rushing_pbp['rusher_player_id'] == player_id)
+        else:
+            rush_2pt_filter &= rushing_pbp['rusher_player_id'].isin(passing_stats['player_id'])
+        
+        # Set grouping variables for 2-point conversions
+        if aggregation_type == "season":
+            rush_2pt_groups = ['season', 'rusher_player_id']
+        elif aggregation_type == "week":
+            rush_2pt_groups = ['season', 'week', 'rusher_player_id']
+        else:  # career - aggregate all seasons together
+            rush_2pt_groups = ['rusher_player_id']
+        
+        if rush_2pt_filter.sum() > 0:
+            rush_2pt_stats = (
+                rushing_pbp[rush_2pt_filter]
+                .groupby(rush_2pt_groups)
+                .size()
+                .reset_index()
+                .rename(columns={
+                    0: 'rushing_2pt_conversions',
+                    'rusher_player_id': 'player_id'  # Rename to match rushing_stats
+                })
+            )
+            
+            # Join with the rushing stats
+            if rush_2pt_stats.shape[0] > 0:
+                # Determine merge columns based on aggregation_type
+                if aggregation_type == "season":
+                    merge_cols = ['season', 'player_id']
+                elif aggregation_type == "week":
+                    merge_cols = ['season', 'week', 'player_id']
+                else:  # career - just merge on player_id to aggregate across seasons
+                    merge_cols = ['player_id']
+                    
+                rushing_stats = rushing_stats.merge(
+                    rush_2pt_stats,
+                    on=merge_cols,
+                    how='left'
+                )
+            else:
+                rushing_stats['rushing_2pt_conversions'] = 0
+        else:
+            rushing_stats['rushing_2pt_conversions'] = 0
+        
+        # Now merge rushing stats with passing stats
+        if aggregation_type == "season":
+            merge_cols = ['season', 'player_id', 'team']
+        elif aggregation_type == "week":
+            merge_cols = ['season', 'week', 'player_id', 'team']
+        else:  # career
+            merge_cols = ['player_id', 'team']
+        
+        # Merge rushing stats with passing stats
+        if len(rushing_stats) > 0:
+            passing_stats = passing_stats.merge(
+                rushing_stats,
+                on=merge_cols,
+                how='left'
+            )
+            
+            # Fill NaN values in rushing columns
+            rushing_cols = [
+                'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                'carries', 'yards_per_carry', 'epa_per_carry', 'rushing_2pt_conversions'
+            ]
+            for col in rushing_cols:
+                if col in passing_stats.columns:
+                    passing_stats[col] = passing_stats[col].fillna(0)
+    
     # Ensure all required fantasy columns exist and fill NaNs with 0 before calculation
     fantasy_required_cols = [
         'passing_yards', 'passing_tds', 'passing_interceptions',
@@ -458,17 +672,348 @@ def calculate_qb_stats(
             # Fill NaNs if the column already exists
             passing_stats[col] = passing_stats[col].fillna(0)
     
-    # Now calculate fantasy points
-    passing_stats['fantasy_points'] = (
-        (1/25) * passing_stats['passing_yards'] +
-        4 * passing_stats['passing_tds'] +
-        -2 * passing_stats['passing_interceptions'] +
-        -2 * passing_stats['passing_fumbles_lost'] +
-        2 * passing_stats['passing_2pt_conversions']
-    )
+    # Add rushing stats to fantasy points if available
+    if rushing_stats is not None and len(rushing_stats) > 0:
+        # Make sure all required rushing fantasy columns exist
+        rushing_fantasy_cols = [
+            'rushing_yards', 'rushing_tds', 'rushing_fumbles_lost', 'rushing_2pt_conversions'
+        ]
+        for col in rushing_fantasy_cols:
+            if col not in passing_stats.columns:
+                logger.warning(f"Fantasy point calculation (QB): Adding missing rushing column '{col}' with value 0.")
+                passing_stats[col] = 0
+            else:
+                # Fill NaNs if the column already exists
+                passing_stats[col] = passing_stats[col].fillna(0)
+        
+        # Update fantasy points to include rushing
+        passing_stats['fantasy_points'] = (
+            (1/25) * passing_stats['passing_yards'] +
+            4 * passing_stats['passing_tds'] +
+            -2 * passing_stats['passing_interceptions'] +
+            -2 * passing_stats['passing_fumbles_lost'] +
+            2 * passing_stats['passing_2pt_conversions'] +
+            # Add rushing points
+            (1/10) * passing_stats['rushing_yards'] +
+            6 * passing_stats['rushing_tds'] +
+            -2 * passing_stats['rushing_fumbles_lost'] +
+            2 * passing_stats['rushing_2pt_conversions']
+        )
+    else:
+        # Initialize rushing columns with zeros before calculating fantasy points
+        rushing_fantasy_cols = [
+            'rushing_yards', 'rushing_tds', 'rushing_fumbles_lost', 'rushing_2pt_conversions'
+        ]
+        for col in rushing_fantasy_cols:
+            if col not in passing_stats.columns:
+                passing_stats[col] = 0
+            else:
+                passing_stats[col] = passing_stats[col].fillna(0)
+                
+        # Calculate fantasy points with zero rushing stats
+        passing_stats['fantasy_points'] = (
+            (1/25) * passing_stats['passing_yards'] +
+            4 * passing_stats['passing_tds'] +
+            -2 * passing_stats['passing_interceptions'] +
+            -2 * passing_stats['passing_fumbles_lost'] +
+            2 * passing_stats['passing_2pt_conversions'] +
+            # Add rushing points (which will be zeros)
+            (1/10) * passing_stats['rushing_yards'] +
+            6 * passing_stats['rushing_tds'] +
+            -2 * passing_stats['rushing_fumbles_lost'] +
+            2 * passing_stats['rushing_2pt_conversions']
+        )
     
     # Set nulls for columns with no data
     passing_stats['passing_2pt_conversions'] = passing_stats['passing_2pt_conversions'].fillna(0)
+    
+    # Ensure qb_dropback column exists
+    if 'qb_dropback' not in passing_stats.columns:
+        passing_stats['qb_dropback'] = passing_stats['attempts'] + passing_stats['sacks_suffered']
+    else:
+        passing_stats['qb_dropback'] = passing_stats['qb_dropback'].fillna(0)
+    
+    # Add default rushing stats columns
+    rushing_columns = [
+        'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+        'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+        'carries', 'yards_per_carry', 'epa_per_carry', 'rushing_2pt_conversions'
+    ]
+    
+    # Initialize all rushing columns with zeros to ensure they always exist
+    for col in rushing_columns:
+        if col not in passing_stats.columns:
+            passing_stats[col] = 0
+    
+    # Add rushing stats if we have player IDs
+    if len(passing_stats) > 0:
+        # Make a copy of the original PBP data for rushing stats
+        rushing_pbp = pbp.copy()
+        
+        # Apply the same filters as for passing
+        if seasons is not None:
+            if isinstance(seasons, int):
+                seasons = [seasons]
+            rushing_pbp = rushing_pbp[rushing_pbp['season'].isin(seasons)]
+        
+        if season_type in ["REG", "POST"]:
+            rushing_pbp = rushing_pbp[rushing_pbp['season_type'] == season_type]
+        
+        if week is not None and aggregation_type == "week":
+            rushing_pbp = rushing_pbp[rushing_pbp['week'] == week]
+        
+        if redzone_only:
+            rushing_pbp = rushing_pbp[rushing_pbp['yardline_100'] <= 20]
+            
+        if downs is not None:
+            rushing_pbp = rushing_pbp[rushing_pbp['down'].isin(downs)]
+        
+        if opponent_team is not None:
+            rushing_pbp = rushing_pbp[rushing_pbp['defteam'] == opponent_team]
+            
+        if score_differential_range is not None:
+            min_diff, max_diff = score_differential_range
+            rushing_pbp = rushing_pbp[(rushing_pbp['score_differential'] >= min_diff) & 
+                                     (rushing_pbp['score_differential'] <= max_diff)]
+        
+        # Set grouping variables based on aggregation_type
+        if aggregation_type == "season":
+            rusher_group_cols = ['season', 'rusher_player_id', 'posteam']
+        elif aggregation_type == "week":
+            rusher_group_cols = ['season', 'week', 'rusher_player_id', 'posteam']
+        else:  # career
+            rusher_group_cols = ['rusher_player_id', 'posteam']
+        
+        # Get QB IDs from passing stats
+        qb_ids = passing_stats['player_id'].tolist()
+        
+        # Filter for QB rushing plays
+        if player_id is not None:
+            # If we're looking for a specific QB, filter for them as a rusher
+            rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & (rushing_pbp['rusher_player_id'] == player_id) & (rushing_pbp['play_type'] == 'run')
+            print(f"DEBUG: Filtering QB rushing plays for QB player_id={player_id}, found {rusher_filter.sum()} plays")
+        else:
+            # Get all QBs from the passing stats and find their rushing plays
+            rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & rushing_pbp['rusher_player_id'].isin(qb_ids) & (rushing_pbp['play_type'] == 'run')
+            print(f"DEBUG: Filtering QB rushing plays for {len(qb_ids)} QBs, found {rusher_filter.sum()} plays")
+        
+        if rusher_filter.sum() > 0:
+            # Calculate rushing stats for QBs
+            rushing_stats = (
+                rushing_pbp[rusher_filter]
+                .groupby(rusher_group_cols)
+                .agg({
+                    'yards_gained': 'sum',
+                    'touchdown': 'sum',
+                    'rush_touchdown': 'sum',
+                    'first_down_rush': 'sum',
+                    'fumble': 'sum',
+                    'fumble_lost': 'sum',
+                    'epa': lambda x: x.sum(skipna=True)
+                })
+                .reset_index()
+                .rename(columns={
+                    'rusher_player_id': 'player_id',
+                    'posteam': 'team',
+                    'yards_gained': 'rushing_yards',
+                    'rush_touchdown': 'rushing_tds',
+                    'first_down_rush': 'rushing_first_downs',
+                    'fumble': 'rushing_fumbles',
+                    'fumble_lost': 'rushing_fumbles_lost',
+                    'epa': 'rushing_epa'
+                })
+            )
+            
+            # Calculate carries
+            carries_count = (
+                rushing_pbp[rusher_filter]
+                .groupby(rusher_group_cols)
+                .size()
+                .reset_index()
+                .rename(columns={0: 'carries'})
+            )
+            
+            # Rename columns to match the rushing_stats DataFrame
+            rename_dict = {}
+            if 'rusher_player_id' in carries_count.columns:
+                rename_dict['rusher_player_id'] = 'player_id'
+            if 'posteam' in carries_count.columns:
+                rename_dict['posteam'] = 'team'
+            carries_count = carries_count.rename(columns=rename_dict)
+            
+            # Determine merge columns
+            merge_cols = []
+            for col in rusher_group_cols:
+                if col == 'rusher_player_id':
+                    merge_cols.append('player_id')
+                elif col == 'posteam':
+                    merge_cols.append('team')
+                else:
+                    merge_cols.append(col)
+            
+            # Merge carries with rushing stats
+            rushing_stats = rushing_stats.merge(
+                carries_count,
+                on=merge_cols,
+                how='left'
+            )
+            
+            # Calculate yards per carry
+            rushing_stats['yards_per_carry'] = np.where(
+                rushing_stats['carries'] > 0,
+                rushing_stats['rushing_yards'] / rushing_stats['carries'],
+                np.nan
+            )
+            
+            # Calculate EPA per carry
+            rushing_stats['epa_per_carry'] = np.where(
+                rushing_stats['carries'] > 0,
+                rushing_stats['rushing_epa'] / rushing_stats['carries'],
+                np.nan
+            )
+            
+            # Calculate 2-point conversions for rushing
+            rush_2pt_filter = (rushing_pbp['play_type'] == 'run') & (rushing_pbp['two_point_conv_result'] == 'success')
+            if player_id is not None:
+                rush_2pt_filter &= (rushing_pbp['rusher_player_id'] == player_id)
+            else:
+                rush_2pt_filter &= rushing_pbp['rusher_player_id'].isin(qb_ids)
+            
+            # Set grouping variables for 2-point conversions
+            if aggregation_type == "season":
+                rush_2pt_groups = ['season', 'rusher_player_id']
+            elif aggregation_type == "week":
+                rush_2pt_groups = ['season', 'week', 'rusher_player_id']
+            else:  # career - aggregate all seasons together
+                rush_2pt_groups = ['rusher_player_id']
+            
+            if rush_2pt_filter.sum() > 0:
+                rush_2pt_stats = (
+                    rushing_pbp[rush_2pt_filter]
+                    .groupby(rush_2pt_groups)
+                    .size()
+                    .reset_index()
+                    .rename(columns={
+                        0: 'rushing_2pt_conversions',
+                        'rusher_player_id': 'player_id'  # Rename to match rushing_stats
+                    })
+                )
+                
+                # Join with the rushing stats
+                if rush_2pt_stats.shape[0] > 0:
+                    # Determine merge columns based on aggregation_type
+                    if aggregation_type == "season":
+                        merge_cols = ['season', 'player_id']
+                    elif aggregation_type == "week":
+                        merge_cols = ['season', 'week', 'player_id']
+                    else:  # career - just merge on player_id to aggregate across seasons
+                        merge_cols = ['player_id']
+                        
+                    rushing_stats = rushing_stats.merge(
+                        rush_2pt_stats,
+                        on=merge_cols,
+                        how='left'
+                    )
+                else:
+                    rushing_stats['rushing_2pt_conversions'] = 0
+            else:
+                rushing_stats['rushing_2pt_conversions'] = 0
+            
+            # Now merge rushing stats with passing stats
+            if aggregation_type == "season":
+                merge_cols = ['season', 'player_id', 'team']
+            elif aggregation_type == "week":
+                merge_cols = ['season', 'week', 'player_id', 'team']
+            else:  # career
+                merge_cols = ['player_id', 'team']
+            
+            # Keep only merge columns that exist in both DataFrames
+            merge_cols = [col for col in merge_cols if col in passing_stats.columns and col in rushing_stats.columns]
+            
+            # Merge rushing stats with passing stats
+            if len(merge_cols) > 0:
+                passing_stats = passing_stats.merge(
+                    rushing_stats,
+                    on=merge_cols,
+                    how='left'
+                )
+                
+                # Fill NaN values in rushing columns
+                rushing_cols = [
+                    'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                    'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                    'carries', 'yards_per_carry', 'epa_per_carry', 'rushing_2pt_conversions'
+                ]
+                for col in rushing_cols:
+                    if col in passing_stats.columns:
+                        passing_stats[col] = passing_stats[col].fillna(0)
+                
+                # Ensure all required rushing columns exist before fantasy points calculation
+                rushing_fantasy_cols = [
+                    'rushing_yards', 'rushing_tds', 'rushing_fumbles_lost', 'rushing_2pt_conversions'
+                ]
+                for col in rushing_fantasy_cols:
+                    if col not in passing_stats.columns:
+                        # Create the column if it doesn't exist
+                        passing_stats[col] = 0
+                    else:
+                        # Fill NaNs if it exists
+                        passing_stats[col] = passing_stats[col].fillna(0)
+                
+                # Update fantasy points to include rushing stats
+                passing_stats['fantasy_points'] = (
+                    (1/25) * passing_stats['passing_yards'] +
+                    4 * passing_stats['passing_tds'] +
+                    -2 * passing_stats['passing_interceptions'] +
+                    -2 * passing_stats['passing_fumbles_lost'] +
+                    2 * passing_stats['passing_2pt_conversions'] +
+                    # Add rushing points
+                    (1/10) * passing_stats['rushing_yards'] +
+                    6 * passing_stats['rushing_tds'] +
+                    -2 * passing_stats['rushing_fumbles_lost'] +
+                    2 * passing_stats['rushing_2pt_conversions']
+                )
+            else:
+                # Couldn't merge, so add empty rushing columns
+                rushing_cols = [
+                    'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                    'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                    'carries', 'yards_per_carry', 'epa_per_carry', 'rushing_2pt_conversions'
+                ]
+                for col in rushing_cols:
+                    passing_stats[col] = 0
+                
+                # Update fantasy points to include rushing stats (all zeros)
+                passing_stats['fantasy_points'] = (
+                    (1/25) * passing_stats['passing_yards'] +
+                    4 * passing_stats['passing_tds'] +
+                    -2 * passing_stats['passing_interceptions'] +
+                    -2 * passing_stats['passing_fumbles_lost'] +
+                    2 * passing_stats['passing_2pt_conversions'] +
+                    # Add rushing points (zeros)
+                    0  # Since all rushing stats are zero
+                )
+        else:
+            # No rushing plays found, add empty columns
+            rushing_cols = [
+                'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                'carries', 'yards_per_carry', 'epa_per_carry', 'rushing_2pt_conversions'
+            ]
+            for col in rushing_cols:
+                passing_stats[col] = 0
+                
+            # Calculate fantasy points with zero rushing stats
+            passing_stats['fantasy_points'] = (
+                (1/25) * passing_stats['passing_yards'] +
+                4 * passing_stats['passing_tds'] +
+                -2 * passing_stats['passing_interceptions'] +
+                -2 * passing_stats['passing_fumbles_lost'] +
+                2 * passing_stats['passing_2pt_conversions']
+                # No rushing points since all rushing stats are zero
+            )
+                
+        print(f"DEBUG: After adding QB rushing stats, columns: {passing_stats.columns.tolist()}")
     
     # Add player name if available in the play-by-play data
     if 'passer_player_name' in filtered_pbp.columns:
@@ -545,9 +1090,26 @@ def calculate_qb_stats(
         )
 
     
-    # Ensure qb_dropback is filled with 0 for any missing values
-    passing_stats['qb_dropback'] = passing_stats['qb_dropback'].fillna(0)
+    # Ensure qb_dropback exists and is filled with appropriate values
+    if 'qb_dropback' not in passing_stats.columns:
+        # If missing completely, calculate it from attempts and sacks
+        if 'attempts' in passing_stats.columns and 'sacks_suffered' in passing_stats.columns:
+            passing_stats['qb_dropback'] = passing_stats['attempts'] + passing_stats['sacks_suffered']
+        else:
+            # If we don't have the component columns, set to 0
+            passing_stats['qb_dropback'] = 0
+    else:
+        # If it exists, fill any NA values with 0
+        passing_stats['qb_dropback'] = passing_stats['qb_dropback'].fillna(0)
     
+    # Ensure qb_epa exists and has appropriate values
+    if 'qb_epa' not in passing_stats.columns:
+        # If missing, set to 0 or calculate from play-by-play data if available
+        passing_stats['qb_epa'] = 0
+    else:
+        # Fill NAs with 0
+        passing_stats['qb_epa'] = passing_stats['qb_epa'].fillna(0)
+
     # Calculate EPA per dropback
     passing_stats['epa_per_dropback'] = np.where(
         passing_stats['qb_dropback'] > 0,
@@ -555,11 +1117,30 @@ def calculate_qb_stats(
         np.nan
     )
     
+    # Calculate total touchdowns (passing + rushing)
+    if 'passing_tds' in passing_stats.columns and 'rushing_tds' in passing_stats.columns:
+        # Fill NAs with 0 before calculation
+        passing_stats['passing_tds'] = passing_stats['passing_tds'].fillna(0)
+        passing_stats['rushing_tds'] = passing_stats['rushing_tds'].fillna(0)
+        # Calculate total touchdowns
+        passing_stats['total_tds'] = passing_stats['passing_tds'] + passing_stats['rushing_tds']
+    elif 'passing_tds' in passing_stats.columns:
+        # Only passing TDs are available
+        passing_stats['total_tds'] = passing_stats['passing_tds']
+    elif 'rushing_tds' in passing_stats.columns:
+        # Only rushing TDs are available
+        passing_stats['total_tds'] = passing_stats['rushing_tds']
+    else:
+        # No TD data available
+        passing_stats['total_tds'] = 0
+    
     # Determine final columns based on aggregation_type
     base_cols = [
         'player_id', 'team', 
         'games_played', 'attempts', 'completions', 'completion_pct',
         'passing_yards', 'passing_tds', 'passing_interceptions',
+        'rushing_yards', 'rushing_tds', 'carries',
+        'total_tds',  # Combined passing + rushing TDs
         'qb_epa', 'passing_cpoe', 'epa_per_dropback',
         'passing_air_yards', 'passing_yards_after_catch', 'pacr',
         'passing_first_downs', 'passing_2pt_conversions',
@@ -2200,6 +2781,182 @@ def get_top_players(
         )
         position_stats['position'] = "QB"  # Explicitly set position for all players in this result
         standardized_position = "QB"
+        
+        # Always add QB rushing stats, regardless of sort_by
+        if len(position_stats) > 0:
+            print(f"DEBUG: Adding QB rushing stats for all QBs")
+            
+            # Make a fresh copy of the PBP data
+            rushing_pbp = pbp.copy()
+            
+            # Apply the same filters
+            if seasons is not None:
+                if isinstance(seasons, int):
+                    seasons = [seasons]
+                rushing_pbp = rushing_pbp[rushing_pbp['season'].isin(seasons)]
+            
+            if season_type in ["REG", "POST"]:
+                rushing_pbp = rushing_pbp[rushing_pbp['season_type'] == season_type]
+            
+            if week is not None and aggregation_type == "week":
+                rushing_pbp = rushing_pbp[rushing_pbp['week'] == week]
+            
+            if redzone_only:
+                rushing_pbp = rushing_pbp[rushing_pbp['yardline_100'] <= 20]
+                
+            if downs is not None:
+                rushing_pbp = rushing_pbp[rushing_pbp['down'].isin(downs)]
+            
+            if opponent_team is not None:
+                rushing_pbp = rushing_pbp[rushing_pbp['defteam'] == opponent_team]
+                
+            if score_differential_range is not None:
+                min_diff, max_diff = score_differential_range
+                rushing_pbp = rushing_pbp[(rushing_pbp['score_differential'] >= min_diff) & 
+                                         (rushing_pbp['score_differential'] <= max_diff)]
+            
+            # Set grouping variables based on aggregation_type
+            if aggregation_type == "season":
+                rusher_group_cols = ['season', 'rusher_player_id', 'posteam']
+            elif aggregation_type == "week":
+                rusher_group_cols = ['season', 'week', 'rusher_player_id', 'posteam']
+            else:  # career
+                rusher_group_cols = ['rusher_player_id', 'posteam']
+            
+            # Filter for QB rusher plays
+            qb_ids = position_stats['player_id'].tolist()
+            rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & rushing_pbp['rusher_player_id'].isin(qb_ids) & (rushing_pbp['play_type'] == 'run')
+            
+            print(f"DEBUG: Found {rusher_filter.sum()} QB rushing plays")
+            
+            if rusher_filter.sum() > 0:
+                # Calculate rushing stats for QBs
+                rushing_stats = (
+                    rushing_pbp[rusher_filter]
+                    .groupby(rusher_group_cols)
+                    .agg({
+                        'yards_gained': 'sum',
+                        'touchdown': 'sum',
+                        'rush_touchdown': 'sum',
+                        'first_down_rush': 'sum',
+                        'fumble': 'sum',
+                        'fumble_lost': 'sum',
+                        'epa': lambda x: x.sum(skipna=True)
+                    })
+                    .reset_index()
+                    .rename(columns={
+                        'rusher_player_id': 'player_id',
+                        'posteam': 'team',
+                        'yards_gained': 'rushing_yards',
+                        'rush_touchdown': 'rushing_tds',
+                        'first_down_rush': 'rushing_first_downs',
+                        'fumble': 'rushing_fumbles',
+                        'fumble_lost': 'rushing_fumbles_lost',
+                        'epa': 'rushing_epa'
+                    })
+                )
+                
+                # Calculate carries
+                carries_count = (
+                    rushing_pbp[rusher_filter]
+                    .groupby(rusher_group_cols)
+                    .size()
+                    .reset_index()
+                    .rename(columns={0: 'carries'})
+                )
+                
+                # Rename columns to match the rushing_stats DataFrame
+                rename_dict = {}
+                if 'rusher_player_id' in carries_count.columns:
+                    rename_dict['rusher_player_id'] = 'player_id'
+                if 'posteam' in carries_count.columns:
+                    rename_dict['posteam'] = 'team'
+                carries_count = carries_count.rename(columns=rename_dict)
+                
+                # Determine merge columns
+                merge_cols = []
+                for col in rusher_group_cols:
+                    if col == 'rusher_player_id':
+                        merge_cols.append('player_id')
+                    elif col == 'posteam':
+                        merge_cols.append('team')
+                    else:
+                        merge_cols.append(col)
+                
+                # Merge carries with rushing stats
+                rushing_stats = rushing_stats.merge(
+                    carries_count,
+                    on=merge_cols,
+                    how='left'
+                )
+                
+                # Add yards_per_carry
+                rushing_stats['yards_per_carry'] = np.where(
+                    rushing_stats['carries'] > 0,
+                    rushing_stats['rushing_yards'] / rushing_stats['carries'],
+                    np.nan
+                )
+                
+                # Merge rushing stats with position_stats
+                merge_cols = ['player_id']
+                if 'season' in position_stats.columns and 'season' in rushing_stats.columns:
+                    merge_cols.append('season')
+                if 'week' in position_stats.columns and 'week' in rushing_stats.columns:
+                    merge_cols.append('week')
+                if 'team' in position_stats.columns and 'team' in rushing_stats.columns:
+                    merge_cols.append('team')
+                
+                # Merge with position_stats
+                position_stats = position_stats.merge(
+                    rushing_stats,
+                    on=merge_cols,
+                    how='left'
+                )
+                
+                # Fill NAs with 0
+                for col in rushing_stats.columns:
+                    if col not in merge_cols and col in position_stats.columns:
+                        position_stats[col] = position_stats[col].fillna(0)
+                
+                # Update fantasy points to include rushing
+                position_stats['fantasy_points'] = (
+                    (1/25) * position_stats['passing_yards'] +
+                    4 * position_stats['passing_tds'] +
+                    -2 * position_stats['passing_interceptions'] +
+                    -2 * position_stats['passing_fumbles_lost'] +
+                    2 * position_stats['passing_2pt_conversions'] +
+                    # Add rushing points
+                    (1/10) * position_stats['rushing_yards'] +
+                    6 * position_stats['rushing_tds'] +
+                    -2 * position_stats['rushing_fumbles_lost'] +
+                    2 * position_stats.get('rushing_2pt_conversions', 0)
+                )
+            else:
+                # Add empty rushing columns with zeros
+                rushing_columns = [
+                    'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                    'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                    'carries', 'yards_per_carry', 'rushing_2pt_conversions'
+                ]
+                
+                # Ensure all rushing columns exist
+                for col in rushing_columns:
+                    if col not in position_stats.columns:
+                        position_stats[col] = 0
+                
+            # Ensure all rushing columns exist at this point regardless of flow path
+            rushing_columns = [
+                'rushing_yards', 'rushing_tds', 'rushing_first_downs', 
+                'rushing_fumbles', 'rushing_fumbles_lost', 'rushing_epa',
+                'carries', 'yards_per_carry', 'rushing_2pt_conversions'
+            ]
+            
+            # Initialize any missing rushing columns with zeros
+            for col in rushing_columns:
+                if col not in position_stats.columns:
+                    position_stats[col] = 0
+                    
+            print(f"DEBUG: After adding QB rushing stats, position_stats columns: {position_stats.columns.tolist()}")
     elif position_upper in RB_POSITIONS:
         position_stats = calculate_rb_stats(
             pbp=pbp,
@@ -2255,6 +3012,154 @@ def get_top_players(
         print(f"No stats found for position: {position} - position_stats is empty DataFrame")
         print(f"Aggregation type: {aggregation_type}, Season: {seasons}, Week: {week}")
         return pd.DataFrame()
+    
+    # For QBs, handle rushing-specific sort columns
+    if position_upper in QB_POSITIONS and sort_by.startswith('rushing_'):
+        # If the sort column doesn't exist, we need to calculate QB rushing stats and merge them
+        if sort_by not in position_stats.columns:
+            # Get QB rushing stats for the same players
+            print(f"DEBUG: Calculating QB rushing stats for sort column '{sort_by}'")
+            
+            # Make a fresh copy of the PBP data
+            rushing_pbp = pbp.copy()
+            
+            # Apply the same filters
+            if seasons is not None:
+                if isinstance(seasons, int):
+                    seasons = [seasons]
+                rushing_pbp = rushing_pbp[rushing_pbp['season'].isin(seasons)]
+            
+            if season_type in ["REG", "POST"]:
+                rushing_pbp = rushing_pbp[rushing_pbp['season_type'] == season_type]
+            
+            if week is not None and aggregation_type == "week":
+                rushing_pbp = rushing_pbp[rushing_pbp['week'] == week]
+            
+            if redzone_only:
+                rushing_pbp = rushing_pbp[rushing_pbp['yardline_100'] <= 20]
+                
+            if downs is not None:
+                rushing_pbp = rushing_pbp[rushing_pbp['down'].isin(downs)]
+            
+            if opponent_team is not None:
+                rushing_pbp = rushing_pbp[rushing_pbp['defteam'] == opponent_team]
+                
+            if score_differential_range is not None:
+                min_diff, max_diff = score_differential_range
+                rushing_pbp = rushing_pbp[(rushing_pbp['score_differential'] >= min_diff) & 
+                                         (rushing_pbp['score_differential'] <= max_diff)]
+            
+            # Set grouping variables based on aggregation_type
+            if aggregation_type == "season":
+                rusher_group_cols = ['season', 'rusher_player_id', 'posteam']
+            elif aggregation_type == "week":
+                rusher_group_cols = ['season', 'week', 'rusher_player_id', 'posteam']
+            else:  # career
+                rusher_group_cols = ['rusher_player_id', 'posteam']
+            
+            # Filter for QB rusher plays
+            qb_ids = position_stats['player_id'].tolist()
+            rusher_filter = ~rushing_pbp['rusher_player_id'].isna() & rushing_pbp['rusher_player_id'].isin(qb_ids) & (rushing_pbp['play_type'] == 'run')
+            
+            print(f"DEBUG: Found {rusher_filter.sum()} QB rushing plays")
+            
+            if rusher_filter.sum() > 0:
+                # Calculate rushing stats for QBs
+                rushing_stats = (
+                    rushing_pbp[rusher_filter]
+                    .groupby(rusher_group_cols)
+                    .agg({
+                        'yards_gained': 'sum',
+                        'touchdown': 'sum',
+                        'rush_touchdown': 'sum',
+                        'first_down_rush': 'sum',
+                        'fumble': 'sum',
+                        'fumble_lost': 'sum',
+                        'epa': lambda x: x.sum(skipna=True)
+                    })
+                    .reset_index()
+                    .rename(columns={
+                        'rusher_player_id': 'player_id',
+                        'posteam': 'team',
+                        'yards_gained': 'rushing_yards',
+                        'rush_touchdown': 'rushing_tds',
+                        'first_down_rush': 'rushing_first_downs',
+                        'fumble': 'rushing_fumbles',
+                        'fumble_lost': 'rushing_fumbles_lost',
+                        'epa': 'rushing_epa'
+                    })
+                )
+                
+                # Calculate carries
+                carries_count = (
+                    rushing_pbp[rusher_filter]
+                    .groupby(rusher_group_cols)
+                    .size()
+                    .reset_index()
+                    .rename(columns={0: 'carries'})
+                )
+                
+                # Rename columns to match the rushing_stats DataFrame
+                rename_dict = {}
+                if 'rusher_player_id' in carries_count.columns:
+                    rename_dict['rusher_player_id'] = 'player_id'
+                if 'posteam' in carries_count.columns:
+                    rename_dict['posteam'] = 'team'
+                carries_count = carries_count.rename(columns=rename_dict)
+                
+                # Determine merge columns
+                merge_cols = []
+                for col in rusher_group_cols:
+                    if col == 'rusher_player_id':
+                        merge_cols.append('player_id')
+                    elif col == 'posteam':
+                        merge_cols.append('team')
+                    else:
+                        merge_cols.append(col)
+                
+                # Merge carries with rushing stats
+                rushing_stats = rushing_stats.merge(
+                    carries_count,
+                    on=merge_cols,
+                    how='left'
+                )
+                
+                # Merge rushing stats with position_stats
+                merge_cols = ['player_id']
+                if 'season' in position_stats.columns and 'season' in rushing_stats.columns:
+                    merge_cols.append('season')
+                if 'week' in position_stats.columns and 'week' in rushing_stats.columns:
+                    merge_cols.append('week')
+                if 'team' in position_stats.columns and 'team' in rushing_stats.columns:
+                    merge_cols.append('team')
+                
+                # Merge with position_stats
+                position_stats = position_stats.merge(
+                    rushing_stats,
+                    on=merge_cols,
+                    how='left'
+                )
+                
+                # Fill NAs with 0
+                for col in rushing_stats.columns:
+                    if col not in merge_cols and col in position_stats.columns:
+                        position_stats[col] = position_stats[col].fillna(0)
+            else:
+                # If no rushing plays found, add all rushing columns with zeros to avoid KeyError
+                position_stats['rushing_yards'] = 0
+                position_stats['rushing_tds'] = 0
+                position_stats['rushing_first_downs'] = 0
+                position_stats['rushing_fumbles'] = 0
+                position_stats['rushing_fumbles_lost'] = 0
+                position_stats['rushing_epa'] = 0
+                position_stats['carries'] = 0
+                position_stats['yards_per_carry'] = 0
+                
+                # Also add the specific sort_by column if needed
+                if sort_by not in position_stats.columns:
+                    position_stats[sort_by] = 0
+                
+            print(f"DEBUG: After adding QB rushing stats, position_stats columns: {position_stats.columns.tolist()}")
     
     # Validate sort_by column exists
     if sort_by not in position_stats.columns:
