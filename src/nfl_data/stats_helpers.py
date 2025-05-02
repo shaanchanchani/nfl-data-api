@@ -54,8 +54,20 @@ logger = logging.getLogger(__name__)
 def import_pbp_data():
     """Return the condensed play-by-play DataFrame (sync)."""
     # Assuming load_pbp_data() is the correct synchronous function
-    return load_pbp_data()
+        # Load PBP data directly from the condensed cache file
+    pbp_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet"
+    try:
+        pbp_data = pd.read_parquet(pbp_file_path)
+        logger.info(f"Loaded PBP data from {pbp_file_path}")
+    except FileNotFoundError:
+        logger.error(f"PBP cache file not found at: {pbp_file_path}")
+        return {"error": f"Required PBP data file not found. Please run ETL refresh."}
+    except Exception as load_err:
+        logger.error(f"Error loading PBP data from {pbp_file_path}: {load_err}")
+        return {"error": f"Error loading required PBP data."}
 
+    if pbp_data.empty:
+        return {"error": f"No play-by-play data could be loaded."}
 async def import_weekly_data(seasons):
     """Async wrapper around ``load_weekly_stats`` for backward compatibility."""
     return await load_weekly_stats(seasons)
@@ -161,7 +173,7 @@ def get_historical_matchup_stats(
         try:
             # Removed await
             # weekly_stats = await import_weekly_data(seasons) 
-            weekly_stats = import_weekly_data(seasons) # Assuming this works synchronously
+            weekly_stats = import_weekly_data(seasons) # Placeholder - needs fixing if used
         except NameError:
             logger.error("import_weekly_data is not defined or imported correctly, or has no synchronous version.")
             return {"error": "Server configuration error: Cannot load weekly stats."}
@@ -204,243 +216,6 @@ def get_historical_matchup_stats(
         logger.exception(f"Error calculating historical stats for {player_name} vs {opponent}: {e}")
         return {"error": f"An error occurred calculating historical stats: {str(e)}"}
 
-def get_team_stats(team: str) -> Dict:
-    """Get comprehensive team statistics."""
-    # Use 2024 season data
-    season = 2024
-    
-    # Import play-by-play data
-    pbp_data = import_pbp_data()
-    pbp_data = pbp_data[pbp_data['season'] == season]
-    team_plays = pbp_data[pbp_data['posteam'] == team]
-    
-    # Create default stats if no data
-    if team_plays.empty:
-        off_stats = {
-            'points_per_game': 0,
-            'yards_per_game': 0,
-            'pass_play_rate': 0,
-            'yards_per_pass': 0,
-            'yards_per_rush': 0,
-            'third_down_conversion_rate': 0,
-            'red_zone_touchdown_rate': 0
-        }
-    else:
-        # Calculate offensive stats
-        off_stats = {
-            'points_per_game': team_plays.groupby('game_id')['yards_gained'].sum().mean(),  # Using yards as proxy for points
-            'yards_per_game': team_plays.groupby('game_id')['yards_gained'].sum().mean(),
-            'pass_play_rate': len(team_plays[team_plays['pass_attempt'] == 1]) / len(team_plays) if len(team_plays) > 0 else 0,
-            'yards_per_pass': team_plays[team_plays['pass_attempt'] == 1]['yards_gained'].mean() if len(team_plays[team_plays['pass_attempt'] == 1]) > 0 else 0,
-            'yards_per_rush': team_plays[team_plays['rush_attempt'] == 1]['yards_gained'].mean() if len(team_plays[team_plays['rush_attempt'] == 1]) > 0 else 0,
-            'third_down_conversion_rate': team_plays[team_plays['down'] == 3]['first_down'].mean() if len(team_plays[team_plays['down'] == 3]) > 0 else 0,
-            'red_zone_touchdown_rate': team_plays[team_plays['yardline_100'] <= 20]['touchdown'].mean() if len(team_plays[team_plays['yardline_100'] <= 20]) > 0 else 0
-        }
-    
-    # Get injury report
-    try:
-        injuries = import_injuries([season])
-        team_injuries = injuries[injuries['team'] == team]
-        formatted_injuries = format_injury_report(team_injuries)
-    except Exception:
-        formatted_injuries = []
-    
-    # Get depth chart
-    try:
-        depth_chart = import_depth_charts([season])
-        team_depth = depth_chart[depth_chart['depth_team'] == team]  # Using 'depth_team' instead of 'team'
-        formatted_depth = format_depth_chart(team_depth)
-    except Exception:
-        formatted_depth = {}
-    
-    return {
-        'offensive_stats': off_stats,
-        'defensive_stats': get_defensive_stats(team, pbp_data, import_weekly_data([season]), season),
-        'injuries': formatted_injuries,
-        'depth_chart': formatted_depth
-    }
-
-def analyze_key_matchups(home_team: str, away_team: str) -> List[Dict]:
-    """Analyze key positional matchups between teams."""
-    # Get current season
-    season = datetime.now().year
-    
-    # Get team rosters and stats
-    home_stats = get_team_stats(home_team)
-    away_stats = get_team_stats(away_team)
-    
-    # Analyze key matchups
-    matchups = []
-    
-    # QB vs Pass Defense
-    matchups.append({
-        'type': 'QB vs Pass Defense',
-        'home_strength': home_stats['offensive_stats']['yards_per_pass'],
-        'away_strength': away_stats['defensive_stats']['completion_percentage_allowed'],
-        'advantage': 'home' if home_stats['offensive_stats']['yards_per_pass'] > 
-                    league_average('yards_per_pass') else 'away'
-    })
-    
-    # Run Game vs Run Defense
-    matchups.append({
-        'type': 'Run Game vs Run Defense',
-        'home_strength': home_stats['offensive_stats']['yards_per_rush'],
-        'away_strength': away_stats['defensive_stats']['yards_per_carry_allowed'],
-        'advantage': 'home' if home_stats['offensive_stats']['yards_per_rush'] >
-                    away_stats['defensive_stats']['yards_per_carry_allowed'] else 'away'
-    })
-    
-    # Add more matchups as needed
-    
-    return matchups
-
-def analyze_player_matchup(player_name: str, home_team: str, away_team: str) -> Dict:
-    """Analyze specific player matchup for a game."""
-    # Get player info
-    players_df = import_players()
-    player = players_df[players_df['player_name'].str.lower() == player_name.lower()].iloc[0]
-    player_team = player['current_team']
-    opponent = away_team if player_team == home_team else home_team
-    
-    # Get historical performance vs opponent
-    historical_stats = get_historical_matchup_stats(player_name, opponent)
-    
-    # Get opponent defensive stats
-    opp_def_stats = get_defensive_stats(opponent, import_pbp_data()[import_pbp_data()['season'] == datetime.now().year], import_weekly_data([datetime.now().year]), datetime.now().year)
-    
-    # Get matchup-specific analysis based on position
-    position_matchup = analyze_position_matchup(
-        player_name,
-        player['position'],
-        opponent
-    )
-    
-    return {
-        'historical_performance': historical_stats,
-        'opponent_defense': opp_def_stats,
-        'position_matchup': position_matchup
-    }
-
-# Helper functions
-
-def get_top_defender(def_players: pd.DataFrame, stat: str) -> Dict:
-    """Get top defender for a specific stat."""
-    if def_players.empty or stat not in def_players.columns:
-        return None
-    
-    top_player = def_players.nlargest(1, stat).iloc[0]
-    return {
-        'name': top_player['player_name'],
-        'value': float(top_player[stat])
-    }
-
-def get_position_specific_stats(stats_df: pd.DataFrame, position: str) -> Dict:
-    """Get position-specific stats from an aggregated DataFrame."""
-    # Example: Extract relevant columns based on position
-    if position == 'QB':
-        return {
-            'avg_passing_yards': stats_df['passing_yards'].mean(),
-            'avg_passing_tds': stats_df['passing_tds'].mean(),
-            'avg_interceptions': stats_df['interceptions'].mean()
-        }
-    elif position == 'RB':
-        return {
-            'avg_rushing_yards': stats_df['rushing_yards'].mean(),
-            'avg_rushing_tds': stats_df['rushing_tds'].mean(),
-            'avg_receptions': stats_df['receptions'].mean()
-        }
-    elif position in ['WR', 'TE']:
-        return {
-            'avg_receiving_yards': stats_df['receiving_yards'].mean(),
-            'avg_receiving_tds': stats_df['receiving_tds'].mean(),
-            'avg_receptions': stats_df['receptions'].mean(),
-            'avg_targets': stats_df['targets'].mean()
-        }
-    
-    return {}
-
-def format_injury_report(injuries_df: pd.DataFrame) -> List[Dict]:
-    """Format injury report data."""
-    if injuries_df.empty:
-        return []
-    
-    return injuries_df.apply(
-        lambda x: {
-            'player': x['player_name'],
-            'position': x['position'],
-            'injury': x['injury_type'],
-            'status': x['practice_status']
-        },
-        axis=1
-    ).tolist()
-
-def format_depth_chart(depth_df: pd.DataFrame) -> Dict:
-    """Format depth chart data."""
-    if depth_df.empty:
-        return {}
-    
-    depth_chart = {}
-    for _, row in depth_df.iterrows():
-        pos = row['position']
-        if pos not in depth_chart:
-            depth_chart[pos] = []
-        depth_chart[pos].append({
-            'player': row['player_name'],
-            'depth': row['depth_team'],
-            'status': row['status']
-        })
-    
-    return depth_chart
-
-def analyze_position_matchup(
-    player_name: str,
-    position: str,
-    opponent: str
-) -> Dict:
-    """Analyze position-specific matchup."""
-    season = datetime.now().year
-    
-    if position == 'WR':
-        # Analyze CB matchup
-        depth_chart = import_depth_charts([season])
-        opponent_cbs = depth_chart[
-            (depth_chart['team'] == opponent) &
-            (depth_chart['position'] == 'CB')
-        ]
-        
-        # Get CB stats
-        cb_stats = []
-        for _, cb in opponent_cbs.iterrows():
-            cb_weekly = import_weekly_data([season])
-            cb_weekly = cb_weekly[cb_weekly['player_name'] == cb['player_name']]
-            if not cb_weekly.empty:
-                cb_stats.append({
-                    'name': cb['player_name'],
-                    'coverage_snaps': cb_weekly['coverage_snaps'].sum(),
-                    'completion_pct_allowed': cb_weekly['completion_percentage_allowed'].mean(),
-                    'passer_rating_allowed': cb_weekly['passer_rating_allowed'].mean()
-                })
-        
-        return {
-            'likely_coverage': cb_stats[0] if cb_stats else None,
-            'backup_coverage': cb_stats[1:] if len(cb_stats) > 1 else []
-        }
-    
-    # Add analysis for other positions
-    return {}
-
-def league_average(stat: str) -> float:
-    """Get league average for a specific stat."""
-    # Implementation would depend on available data
-    # This is a placeholder
-    return 0.0
-
-async def search_players(name: str) -> List[Dict]:
-    """Search for players by name."""
-    players_df = await import_players()
-    # Players dataset uses 'display_name' instead of 'player_name'
-    matches = players_df[players_df['display_name'].str.lower().str.contains(name.lower())]
-    return matches.to_dict('records')
 
 # Updated: Changed to synchronous function, loads data directly
 def resolve_player(name: str, team: Optional[str] = None, season: Optional[int] = None) -> Tuple[Optional[Dict], List[Dict]]:
@@ -595,7 +370,8 @@ async def get_player_game_log(player_name: str, season: Optional[int] = None) ->
     # NOTE: This still relies on an async import_weekly_data/load_weekly_stats
     try:
         # Assuming import_weekly_data exists and works async
-        weekly_data = await import_weekly_data([season]) 
+        # weekly_data = await import_weekly_data([season]) # Commented out - needs fix
+        weekly_data = pd.DataFrame() # Placeholder
     except NameError:
         logger.error("import_weekly_data is not defined or imported correctly.")
         return {"error": "Server configuration error: Cannot load weekly stats."} 
@@ -667,8 +443,19 @@ async def get_situation_stats(player_name: str, situations: List[str], season: O
     logger.info(f"Calculating situation stats for {player['display_name']} ({player_id}), situations: {situations}, season: {season}")
 
     try:
-        # Load PBP data (remove await, it's a regular function)
-        pbp_data = load_pbp_data()
+        # Load PBP data directly from the condensed cache file
+        pbp_file_path = "/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet"
+        try:
+            # pbp_data = load_pbp_data() # ERROR: Not defined
+            pbp_data = pd.read_parquet(pbp_file_path)
+            logger.info(f"Loaded PBP data from {pbp_file_path}")
+        except FileNotFoundError:
+            logger.error(f"PBP cache file not found at: {pbp_file_path}")
+            return {"error": f"Required PBP data file not found. Please run ETL refresh."}
+        except Exception as load_err:
+            logger.error(f"Error loading PBP data from {pbp_file_path}: {load_err}")
+            return {"error": f"Error loading required PBP data."}
+            
         if pbp_data.empty:
              return {"error": f"No play-by-play data could be loaded."}
 
