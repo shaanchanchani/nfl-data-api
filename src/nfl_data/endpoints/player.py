@@ -159,7 +159,7 @@ async def get_player_stats_endpoint(
                 score_diff_parsed = parts
 
         # Define PBP path and load data within the endpoint
-        pbp_path = PathLib("/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet")
+        pbp_path = PathLib("cache/play_by_play_condensed.parquet")
         if not pbp_path.is_file():
             logger.error(f"PBP data file not found at: {pbp_path}")
             raise HTTPException(status_code=500, detail="Play-by-play data file is missing.")
@@ -385,7 +385,7 @@ async def get_player_stats_by_team_endpoint(
                 score_diff_parsed = parts
 
         # Define PBP path and load data within the endpoint
-        pbp_path = PathLib("/Users/shaanchanchani/dev/nfl-data-api/cache/play_by_play_condensed.parquet")
+        pbp_path = PathLib("cache/play_by_play_condensed.parquet")
         if not pbp_path.is_file():
             logger.error(f"PBP data file not found at: {pbp_path}")
             raise HTTPException(status_code=500, detail="Play-by-play data file is missing.")

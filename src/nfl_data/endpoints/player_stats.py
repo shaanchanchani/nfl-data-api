@@ -30,7 +30,7 @@ def get_player_ids(player_names: Union[str, List[str]]) -> Union[str, List[str]]
         Single GSIS ID as string or list of GSIS IDs corresponding to input names.
         Returns None for any players not found.
     """
-    players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+    players_df = pd.read_parquet(Path("cache/players.parquet"))
     # Handle single name case
     if isinstance(player_names, str):
         player_match = players_df[players_df['display_name'] == player_names]
@@ -54,7 +54,7 @@ def get_player_position(player_id: str) -> Optional[str]:
     Returns:
         Position as string or None if player not found
     """
-    players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+    players_df = pd.read_parquet(Path("cache/players.parquet"))
     player_match = players_df[players_df['gsis_id'] == player_id]
     return player_match.iloc[0]['position'] if len(player_match) > 0 else None
 
@@ -583,7 +583,7 @@ def calculate_qb_stats(
     # Add player name and position from players dataset if requested
     if add_player_name and 'player_id' in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             player_info = players_df[players_df['gsis_id'].isin(result['player_id'])].set_index('gsis_id')
             
             # Add player name if not already present
@@ -603,7 +603,7 @@ def calculate_qb_stats(
     # Add player names for all players if requested
     elif add_player_name and 'player_name' not in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             # Create a mapping of player IDs to display names
             player_name_map = dict(zip(players_df['gsis_id'], players_df['display_name']))
             # Create a mapping for positions
@@ -1259,7 +1259,7 @@ def calculate_rb_stats(
     # Add player name and position from players dataset if requested
     if add_player_name and 'player_id' in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             player_info = players_df[players_df['gsis_id'].isin(result['player_id'])].set_index('gsis_id')
             
             # Add player name if not already present
@@ -1279,7 +1279,7 @@ def calculate_rb_stats(
     # Add player names for all players if requested
     elif add_player_name and 'player_name' not in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             # Create a mapping of player IDs to display names
             player_name_map = dict(zip(players_df['gsis_id'], players_df['display_name']))
             # Create a mapping for positions
@@ -1793,7 +1793,7 @@ def calculate_wr_stats(
     # Add player name and position from players dataset if requested
     if add_player_name and 'player_id' in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             player_info = players_df[players_df['gsis_id'].isin(result['player_id'])].set_index('gsis_id')
             
             # Add player name if not already present
@@ -1813,7 +1813,7 @@ def calculate_wr_stats(
     # Add player names for all players if requested
     elif add_player_name and 'player_name' not in result.columns and not result.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             # Create a mapping of player IDs to display names
             player_name_map = dict(zip(players_df['gsis_id'], players_df['display_name']))
             # Create a mapping for positions
@@ -2063,7 +2063,7 @@ def calculate_player_stats(
         raise ValueError(f"Unsupported position: {position}. Supported positions are QB, RB, WR, and TE.")
 
 def get_top_players(
-    pbp_path: str = '/Users/shaanchanchani/dev/nfl_api_etl/cache/play_by_play_condensed.parquet',
+    pbp_path: str = 'cache/play_by_play_condensed.parquet',
     position: str = 'QB',
     n: int = 10,
     sort_by: str = None,
@@ -2229,7 +2229,7 @@ def get_top_players(
     # Always add player names from players.parquet (regardless of include_player_details setting)
     if not top_players.empty:
         try:
-            players_df = pd.read_parquet(Path("/Users/shaanchanchani/dev/nfl_api_etl/cache/players.parquet"))
+            players_df = pd.read_parquet(Path("cache/players.parquet"))
             
             # Create a mapping of player IDs to display names 
             player_name_map = dict(zip(players_df['gsis_id'], players_df['display_name']))
@@ -2269,7 +2269,7 @@ if __name__ == "__main__":
     import pandas as pd
     
     # Load play-by-play data
-    pbp = pd.read_parquet('/Users/shaanchanchani/dev/nfl_api_etl/cache/play_by_play_condensed.parquet')
+    pbp = pd.read_parquet('cache/play_by_play_condensed.parquet')
     
     print("===== Player Identification Examples =====")
     
