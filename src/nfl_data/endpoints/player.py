@@ -372,11 +372,33 @@ async def get_top_players_endpoint(
         # Convert to records and override any incorrect positions with the requested position
         # This ensures the position in the response matches what was requested
         records = []
+        
+        # Check if rushing_yards is in the columns
+        if 'rushing_yards' in leaderboard_df.columns:
+            print(f"DEBUG: rushing_yards column stats before conversion: min={leaderboard_df['rushing_yards'].min()}, max={leaderboard_df['rushing_yards'].max()}, mean={leaderboard_df['rushing_yards'].mean()}")
+        else:
+            print(f"DEBUG: rushing_yards column NOT in leaderboard_df")
+            
         for rec in leaderboard_df.to_dict(orient="records"):
+            # Debug the original record
+            if 'rushing_yards' in rec:
+                rushing_yards = rec['rushing_yards']
+                print(f"DEBUG: Player {rec.get('player_name', 'unknown')}: rushing_yards={rushing_yards} (type={type(rushing_yards)})")
+            
             sanitized_rec = _sanitize_record(rec)
-            # Explicitly set position to match the requested position
-            if "position" in sanitized_rec:
-                sanitized_rec["position"] = position
+            
+            # Debug the sanitized record
+            if 'rushing_yards' in sanitized_rec:
+                rushing_yards = sanitized_rec['rushing_yards']
+                print(f"DEBUG: AFTER SANITIZE - Player {sanitized_rec.get('player_name', 'unknown')}: rushing_yards={rushing_yards} (type={type(rushing_yards)})")
+            
+            # For display purposes in the API response, we set the position field 
+            # to match what the user requested, but we use database position fields for filtering
+            #
+            # IMPORTANT: We do NOT override/set position here anymore. Instead, rely on player_position 
+            # and player_position_group for filtering, which come from the database
+            #
+            # sanitized_rec["position"] = position  # This line has been intentionally commented out
                 
             # For QBs, add touchdown field that combines passing and rushing TDs
             if position.upper() == "QB":
@@ -389,6 +411,20 @@ async def get_top_players_endpoint(
                 
             records.append(sanitized_rec)
             
+        # Position filtering should be done at source in get_top_players now
+        # This is a simplified version of the emergency fix to ensure proper display
+        
+        # Update position field to match player_position_group or player_position (from database)
+        for rec in records:
+            # Set the position field to match the player's database position for display
+            if 'player_position_group' in rec and rec['player_position_group']:
+                rec['position'] = rec['player_position_group']
+            elif 'player_position' in rec and rec['player_position']:
+                rec['position'] = rec['player_position']
+                
+        # Log how many records we have
+        print(f"DEBUG: Returning {len(records)} records")
+                
         return {
             "position": position,
             "leaderboard": records,
