@@ -16,7 +16,7 @@ from fastapi_cache.backends.redis import RedisBackend
 import redis.asyncio as redis
 
 # Import routers from endpoint modules
-from .endpoints import player, team, game, compare, utility, qb
+from .endpoints import player, team, game, compare, utility
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -92,5 +92,4 @@ app.include_router(player.router)
 app.include_router(team.router)
 app.include_router(game.router)
 app.include_router(compare.router)
-app.include_router(qb.router)
 app.include_router(utility.router)
