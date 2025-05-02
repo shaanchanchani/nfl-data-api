@@ -34,4 +34,4 @@ if __name__ == "__main__":
     # --- Start FastAPI Server ---
     print(f"--- Starting FastAPI server on port {port} ---")
     # Make sure reload=False for deployment to avoid unnecessary restarts
-    uvicorn.run("nfl_data.main:app", host="0.0.0.0", port=port, reload=False) # Set reload=False 
+    uvicorn.run("src.nfl_data.main:app", host="0.0.0.0", port=port, reload=False) # Corrected path 
