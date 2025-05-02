@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-from nfl_data.endpoints.player_stats import calculate_player_stats, get_top_players
-from nfl_data.stats_helpers import resolve_player, get_player_game_log, calculate_age
+from src.nfl_data.endpoints.player_stats import calculate_player_stats, get_top_players
+from src.nfl_data.stats_helpers import resolve_player, get_player_game_log, calculate_age
 
 class HistoryType(str, Enum):
     """Enumeration of player history types."""
